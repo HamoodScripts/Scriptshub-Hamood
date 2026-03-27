@@ -750,23 +750,58 @@ local function makeMobList()
 end
 
 -- ============================================================
--- SERVERHOP
+-- SERVERHOP  (fixed: fetches server list and picks a different one)
 -- ============================================================
 local isHopping = false
 
 local function doServerhop()
 	if isHopping then return end
 	isHopping = true
-	setStatus("Server hopping...")
-	-- Queue the script to auto-execute after teleport
+	setStatus("Finding new server...")
+
 	pcall(function()
 		if queue_on_teleport then
 			queue_on_teleport(readfile("sharmoodie.lua"))
 		end
 	end)
-	task.wait(0.5)
-	pcall(function()
-		TeleportService:Teleport(game.PlaceId, player)
+
+	task.spawn(function()
+		local success, result = pcall(function()
+			local currentJobId = game.JobId
+			local servers = {}
+
+			local response = game:HttpGetAsync(
+				"https://games.roblox.com/v1/games/" .. game.PlaceId ..
+				"/servers/Public?sortOrder=Asc&limit=100"
+			)
+
+			for jobId in response:gmatch('"id":"([^"]+)"') do
+				if jobId ~= currentJobId then
+					table.insert(servers, jobId)
+				end
+			end
+
+			if #servers == 0 then
+				setStatus("No other servers found!")
+				isHopping = false
+				return
+			end
+
+			local chosen = servers[math.random(1, #servers)]
+			setStatus("Hopping to new server...")
+			task.wait(0.5)
+			TeleportService:TeleportToPlaceInstance(game.PlaceId, chosen, player)
+		end)
+
+		if not success then
+			setStatus("Fallback hop...")
+			task.wait(0.5)
+			pcall(function()
+				TeleportService:Teleport(game.PlaceId, player)
+			end)
+			task.wait(3)
+			isHopping = false
+		end
 	end)
 end
 
