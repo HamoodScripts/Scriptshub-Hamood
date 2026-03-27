@@ -274,7 +274,7 @@ DROP_FOLDER.ChildAdded:Connect(function(drop)
 end)
 
 -- ============================================================
--- CONFIG SYSTEM  (all bugs fixed)
+-- CONFIG SYSTEM
 -- ============================================================
 local CONFIG_FOLDER = "sharmoodie_configs"
 local AUTOLOAD_FILE = CONFIG_FOLDER .. "/autoload.txt"
@@ -293,7 +293,6 @@ local function ensureFolder()
 	return ok
 end
 
--- BUG FIX 1: serialise with explicit ordering and proper nil/string escaping
 local function serializeState()
 	local parts = {}
 	for _, k in ipairs(CONFIG_KEYS) do
@@ -315,8 +314,6 @@ local function serializeState()
 	return "{" .. table.concat(parts, ",") .. "}"
 end
 
--- BUG FIX 2: parse booleans BEFORE numbers so "true"/"false" are never
--- captured by the number pattern; also guard against overwriting booleans
 local function deserializeJSON(s)
 	local t = {}
 	for k in s:gmatch('"([^"]+)":true') do  t[k] = true  end
@@ -338,7 +335,6 @@ local function saveConfig(name)
 	       else return false, "Save failed: " .. tostring(err) end
 end
 
--- Returns parsed table + nil error, or nil + error string
 local function readConfig(name)
 	if not ensureFolder() then return nil, "Filesystem unavailable" end
 	local path = CONFIG_FOLDER .. "/" .. name .. ".json"
@@ -368,7 +364,7 @@ end
 local function getAutoload()
 	local ok, data = pcall(readfile, AUTOLOAD_FILE)
 	if ok and data and data ~= "" then
-		return (data:match("^%s*(.-)%s*$"))  -- trim whitespace
+		return (data:match("^%s*(.-)%s*$"))
 	end
 	return nil
 end
@@ -387,9 +383,11 @@ local function listConfigs()
 end
 
 -- ============================================================
--- SERVERHOP  (fetches server list, picks a different one)
+-- SERVERHOP  (skips full servers, retries on failure)
 -- ============================================================
 local isHopping = false
+local MAX_HOP_ATTEMPTS = 5
+local HOP_RETRY_DELAY  = 4   -- seconds between retry attempts
 
 local function doServerhop()
 	if isHopping then return end
@@ -408,27 +406,70 @@ local function doServerhop()
 	end)
 
 	task.spawn(function()
-		local ok = pcall(function()
-			local currentJobId = game.JobId
-			local servers = {}
-			local response = game:HttpGetAsync(
-				"https://games.roblox.com/v1/games/" .. game.PlaceId ..
-				"/servers/Public?sortOrder=Asc&limit=100"
-			)
-			for jobId in response:gmatch('"id":"([^"]+)"') do
-				if jobId ~= currentJobId then table.insert(servers, jobId) end
+		local attempt = 0
+
+		local function tryHop()
+			attempt += 1
+			setStatus("Hopping... (attempt " .. attempt .. "/" .. MAX_HOP_ATTEMPTS .. ")")
+
+			local ok = pcall(function()
+				local currentJobId = game.JobId
+				local maxPlayers   = Players.MaxPlayers
+
+				-- Fetch server list with playing counts
+				local response = game:HttpGetAsync(
+					"https://games.roblox.com/v1/games/" .. game.PlaceId ..
+					"/servers/Public?sortOrder=Asc&limit=100"
+				)
+
+				-- Parse each server entry: grab id and playing count together
+				local servers = {}
+				for entry in response:gmatch('{"id":"[^}]+"[^}]*}') do
+					local jobId  = entry:match('"id":"([^"]+)"')
+					local playing = tonumber(entry:match('"playing":(%d+)'))
+					if jobId and jobId ~= currentJobId then
+						-- if playing is nil we couldn't parse it; allow it through
+						local isFull = playing and playing >= maxPlayers
+						if not isFull then
+							table.insert(servers, jobId)
+						end
+					end
+				end
+
+				if #servers == 0 then
+					-- All servers full or only one server — schedule a retry
+					if attempt < MAX_HOP_ATTEMPTS then
+						setStatus("All servers full, retrying in " .. HOP_RETRY_DELAY .. "s...")
+						task.wait(HOP_RETRY_DELAY)
+						tryHop()
+					else
+						setStatus("Hop failed: all servers full after " .. attempt .. " attempts")
+						isHopping = false
+					end
+					return
+				end
+
+				local chosen = servers[math.random(1, #servers)]
+				task.wait(0.5)
+				TeleportService:TeleportToPlaceInstance(game.PlaceId, chosen, player)
+			end)
+
+			if not ok then
+				-- HTTP / teleport error: retry or fall back to blind teleport
+				if attempt < MAX_HOP_ATTEMPTS then
+					setStatus("Hop error, retrying in " .. HOP_RETRY_DELAY .. "s...")
+					task.wait(HOP_RETRY_DELAY)
+					tryHop()
+				else
+					setStatus("Hop failed after " .. attempt .. " attempts, using fallback...")
+					pcall(function() TeleportService:Teleport(game.PlaceId, player) end)
+					task.wait(3)
+					isHopping = false
+				end
 			end
-			if #servers == 0 then isHopping = false; return end
-			local chosen = servers[math.random(1, #servers)]
-			task.wait(0.5)
-			TeleportService:TeleportToPlaceInstance(game.PlaceId, chosen, player)
-		end)
-		if not ok then
-			task.wait(0.5)
-			pcall(function() TeleportService:Teleport(game.PlaceId, player) end)
-			task.wait(3)
-			isHopping = false
 		end
+
+		tryHop()
 	end)
 end
 
@@ -606,7 +647,6 @@ local function makeSection(text)
 	return row
 end
 
--- BUG FIX 3: makeToggle registers refresh so autoload can sync visuals
 local function makeToggle(label, stateKey, onToggle, keySuffix)
 	local card = Instance.new("Frame")
 	card.Size             = UDim2.new(1, 0, 0, 40)
@@ -661,7 +701,7 @@ local function makeToggle(label, stateKey, onToggle, keySuffix)
 		stripe.Visible         = on
 	end
 
-	registerRefresh(refresh)  -- so refreshAllUI() syncs this after autoload
+	registerRefresh(refresh)
 
 	local btn = Instance.new("TextButton")
 	btn.Size             = UDim2.new(1, 0, 1, 0)
@@ -679,8 +719,6 @@ local function makeToggle(label, stateKey, onToggle, keySuffix)
 	return { refresh = refresh }
 end
 
--- BUG FIX 4: makeSlider takes optional stateKey so it can write + read state;
--- refresh() reads current state so slider position matches after autoload
 local function makeSlider(labelText, minVal, maxVal, defaultVal, stateKey, onChange)
 	local card = Instance.new("Frame")
 	card.Size             = UDim2.new(1, 0, 0, 56)
@@ -1055,7 +1093,6 @@ do
 	Instance.new("UICorner", setAutoBtn).CornerRadius = UDim.new(0, 8)
 	setAutoBtn.MouseButton1Click:Connect(function()
 		if currentConfigName ~= "" then
-			-- BUG FIX 5: always save first so the file definitely exists on rejoin
 			saveConfig(currentConfigName)
 			local ok = setAutoload(currentConfigName)
 			setStatus(ok and ("Autoload set: " .. currentConfigName) or "Autoload write failed")
@@ -1175,8 +1212,7 @@ do
 end
 
 -- ============================================================
--- BUG FIX 6: AUTOLOAD runs AFTER the GUI is fully built so
--- refreshAllUI() actually has callbacks registered to call
+-- AUTOLOAD runs AFTER the GUI is fully built
 -- ============================================================
 do
 	local autoName = getAutoload()
