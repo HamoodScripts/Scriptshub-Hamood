@@ -1273,7 +1273,7 @@ RunService.Heartbeat:Connect(function(dt)
 		end
 	elseif state.autoCollect then
 		for _, drop in ipairs(DROP_FOLDER:GetChildren()) do
-			if drop:IsA("Model") then
+			if drop:IsA("Model") and drop.Name == "CursedFinger" then
 				local x, y, z = drop:FindFirstChild("x"), drop:FindFirstChild("y"), drop:FindFirstChild("z")
 				if x and y and z then
 					root.CFrame = CFrame.new(Vector3.new(x.Value, y.Value + 3, z.Value))
