@@ -241,6 +241,12 @@ MOB_FOLDER.ChildRemoved:Connect(removeESP)
 -- ============================================================
 -- TARGETING HELPERS
 -- ============================================================
+local function getMobGroupName(name)
+	local group = (name:match("^(.-)%s*%d+$") or name):match("^%s*(.-)%s*$")
+	if not group or group == "" then group = name end
+	return group
+end
+
 local function getTargetMob()
 	local character = player.Character
 	if not character then return nil end
@@ -249,7 +255,8 @@ local function getTargetMob()
 	local nearest, shortestDist = nil, math.huge
 	for _, mob in ipairs(MOB_FOLDER:GetChildren()) do
 		if mob:IsA("Model") then
-			local nameMatch = state.selectedMob == nil or mob.Name == state.selectedMob
+			local groupName = getMobGroupName(mob.Name)
+			local nameMatch = state.selectedMob == nil or groupName == state.selectedMob
 			if nameMatch then
 				local mobRoot = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
 				if mobRoot then
@@ -881,23 +888,27 @@ local function makeMobList()
 		end)
 		table.insert(mobButtons, anyBtn)
 		for _, mob in ipairs(MOB_FOLDER:GetChildren()) do
-			if mob:IsA("Model") and not seen[mob.Name] then
-				seen[mob.Name] = true
-				local isSelected = state.selectedMob == mob.Name
-				local mobName    = mob.Name
-				local btn = makeChip(scroll, mobName, isSelected, function()
-					state.selectedMob = mobName
-					for _, b in ipairs(mobButtons) do
-						b.BackgroundColor3 = BG_ELEMENT; b.TextColor3 = TEXT_MUTED; b.Font = Enum.Font.Gotham
-					end
-					for _, b in ipairs(mobButtons) do
-						if b.Text == mobName then
-							b.BackgroundColor3 = ACCENT_COLOR; b.TextColor3 = BG_DEEP; b.Font = Enum.Font.GothamBold
+			if mob:IsA("Model") then
+				-- Strip trailing spaces+numbers to get the group name
+				-- e.g. "Paladin 3" → "Paladin", "BossGhost" → "BossGhost"
+				local groupName = getMobGroupName(mob.Name)
+				if not seen[groupName] then
+					seen[groupName] = true
+					local isSelected = state.selectedMob == groupName
+					local btn = makeChip(scroll, groupName, isSelected, function()
+						state.selectedMob = groupName
+						for _, b in ipairs(mobButtons) do
+							b.BackgroundColor3 = BG_ELEMENT; b.TextColor3 = TEXT_MUTED; b.Font = Enum.Font.Gotham
 						end
-					end
-					setStatus("Target: " .. mobName)
-				end)
-				table.insert(mobButtons, btn)
+						for _, b in ipairs(mobButtons) do
+							if b.Text == groupName then
+								b.BackgroundColor3 = ACCENT_COLOR; b.TextColor3 = BG_DEEP; b.Font = Enum.Font.GothamBold
+							end
+						end
+						setStatus("Target: " .. groupName)
+					end)
+					table.insert(mobButtons, btn)
+				end
 			end
 		end
 	end
