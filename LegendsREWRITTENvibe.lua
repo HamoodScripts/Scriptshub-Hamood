@@ -276,7 +276,7 @@ DROP_FOLDER.ChildAdded:Connect(function(drop)
 	if x and y and z then
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart")
-		if root then root.CFrame = CFrame.new(Vector3.new(x.Value, y.Value - 3, z.Value)) end
+		if root then root.CFrame = CFrame.new(Vector3.new(x.Value, y.Value, z.Value)) end
 	end
 end)
 
@@ -1329,7 +1329,7 @@ RunService.Heartbeat:Connect(function(dt)
 			if drop:IsA("Model") and drop.Name == "CursedFinger" then
 				local x, y, z = drop:FindFirstChild("x"), drop:FindFirstChild("y"), drop:FindFirstChild("z")
 				if x and y and z then
-					root.CFrame = CFrame.new(Vector3.new(x.Value, y.Value + 3, z.Value))
+					root.CFrame = CFrame.new(Vector3.new(x.Value, y.Value, z.Value))
 					break
 				end
 			end
