@@ -4,6 +4,7 @@
 local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local TeleportService  = game:GetService("TeleportService")
 
 local player      = Players.LocalPlayer
 local MOB_FOLDER  = workspace.Mobs
@@ -50,7 +51,8 @@ local state = {
 	farmDistance = 5,
 	flySpeed     = 60,
 	attackRate   = 0.3,
-	espMaxDist   = 300,
+	espMaxDist      = 300,
+	autoServerhop   = false,
 	noStun       = false,
 }
 
@@ -748,6 +750,154 @@ local function makeMobList()
 end
 
 -- ============================================================
+-- SERVERHOP
+-- ============================================================
+local isHopping = false
+
+local function doServerhop()
+	if isHopping then return end
+	isHopping = true
+	setStatus("Server hopping...")
+	-- Queue the script to auto-execute after teleport
+	pcall(function()
+		if queue_on_teleport then
+			queue_on_teleport(readfile("sharmoodie.lua"))
+		end
+	end)
+	task.wait(0.5)
+	pcall(function()
+		TeleportService:Teleport(game.PlaceId, player)
+	end)
+end
+
+-- ============================================================
+-- CONFIG SYSTEM
+-- ============================================================
+local CONFIG_FOLDER = "sharmoodie_configs"
+local AUTOLOAD_FILE = CONFIG_FOLDER .. "/autoload.txt"
+
+-- Keys saved/loaded from config (excludes runtime-only state)
+local CONFIG_KEYS = {
+	"mobESP", "autoFarm", "autoCollect", "noclip",
+	"speedHack", "flyHack", "selectedMob",
+	"farmDistance", "flySpeed", "attackRate",
+	"espMaxDist", "noStun", "autoServerhop",
+}
+
+local function ensureFolder()
+	pcall(function()
+		if not isfolder(CONFIG_FOLDER) then
+			makefolder(CONFIG_FOLDER)
+		end
+	end)
+end
+
+local function serializeState()
+	local t = {}
+	for _, k in ipairs(CONFIG_KEYS) do
+		t[k] = state[k]
+	end
+	-- simple manual JSON encode (no HttpService needed)
+	local parts = {}
+	for k, v in pairs(t) do
+		local val
+		if type(v) == "boolean" then
+			val = v and "true" or "false"
+		elseif type(v) == "number" then
+			val = tostring(v)
+		elseif type(v) == "string" then
+			val = '"' .. v:gsub('"', '\"') .. '"'
+		else
+			val = "null"
+		end
+		table.insert(parts, '"' .. k .. '":' .. val)
+	end
+	return "{" .. table.concat(parts, ",") .. "}"
+end
+
+local function deserializeJSON(s)
+	local t = {}
+	-- booleans
+	for k, v in s:gmatch('"([^"]+)":(true|false)') do
+		t[k] = v == "true"
+	end
+	-- numbers
+	for k, v in s:gmatch('"([^"]+)":(%-?%d+%.?%d*)') do
+		t[k] = tonumber(v)
+	end
+	-- strings
+	for k, v in s:gmatch('"([^"]+)":"([^"]*)"') do
+		t[k] = v
+	end
+	-- nulls (selectedMob = null → nil, already nil so skip)
+	return t
+end
+
+local function saveConfig(name)
+	ensureFolder()
+	local path = CONFIG_FOLDER .. "/" .. name .. ".json"
+	local ok, err = pcall(writefile, path, serializeState())
+	if ok then
+		setStatus("Config saved: " .. name)
+	else
+		setStatus("Save failed!")
+	end
+end
+
+local function loadConfig(name, silent)
+	ensureFolder()
+	local path = CONFIG_FOLDER .. "/" .. name .. ".json"
+	local ok, data = pcall(readfile, path)
+	if not ok or not data then
+		if not silent then setStatus("Config not found: " .. name) end
+		return false
+	end
+	local t = deserializeJSON(data)
+	for _, k in ipairs(CONFIG_KEYS) do
+		if t[k] ~= nil then
+			state[k] = t[k]
+		end
+	end
+	if not silent then setStatus("Config loaded: " .. name) end
+	return true
+end
+
+local function setAutoload(name)
+	ensureFolder()
+	pcall(writefile, AUTOLOAD_FILE, name)
+end
+
+local function clearAutoload()
+	ensureFolder()
+	pcall(writefile, AUTOLOAD_FILE, "")
+end
+
+local function getAutoload()
+	local ok, data = pcall(readfile, AUTOLOAD_FILE)
+	if ok and data and data ~= "" then return data end
+	return nil
+end
+
+local function listConfigs()
+	local names = {}
+	local ok, files = pcall(listfiles, CONFIG_FOLDER)
+	if ok and files then
+		for _, path in ipairs(files) do
+			local name = path:match("([^/\]+)%.json$")
+			if name then table.insert(names, name) end
+		end
+	end
+	return names
+end
+
+-- Autoload on startup
+local autoloadName = getAutoload()
+if autoloadName then
+	loadConfig(autoloadName, true)
+	setStatus("Autoloaded: " .. autoloadName)
+end
+
+-- ============================================================
 -- BUILD GUI
 -- ============================================================
 makeSection("Combat")
@@ -775,7 +925,28 @@ makeSlider("Farm Distance",      2,   30,   5, function(v) state.farmDistance = 
 makeSlider("Attack Rate (×10)",  1,   20,   3, function(v) state.attackRate   = v / 10 end)
 
 makeSection("Drops")
-makeToggle("Auto Collect", "autoCollect", nil)
+makeToggle("Auto Collect",    "autoCollect",   nil)
+makeToggle("Auto Serverhop",  "autoServerhop", function(on)
+	setStatus("Auto Serverhop: " .. (on and "ON — watching drops" or "OFF"))
+end)
+
+-- Manual hop button
+do
+	local hopBtn = Instance.new("TextButton")
+	hopBtn.Size             = UDim2.new(1, 0, 0, 36)
+	hopBtn.BackgroundColor3 = Color3.fromRGB(239, 79, 29)
+	hopBtn.TextColor3       = Color3.fromRGB(255, 255, 255)
+	hopBtn.TextScaled       = false
+	hopBtn.TextSize         = 13
+	hopBtn.Font             = Enum.Font.GothamBold
+	hopBtn.Text             = "⚡  Serverhop Now"
+	hopBtn.BorderSizePixel  = 0
+	hopBtn.Parent           = scrollFrame
+	Instance.new("UICorner", hopBtn).CornerRadius = UDim.new(0, 8)
+	hopBtn.MouseButton1Click:Connect(function()
+		doServerhop()
+	end)
+end
 
 makeSection("Movement")
 local speedRef = makeToggle("Speed Hack", "speedHack", nil, "F1")
@@ -793,6 +964,230 @@ makeToggle("Noclip", "noclip", function(on)
 	end
 end)
 makeSlider("Fly Speed", 10, 1000, 60, function(v) state.flySpeed = v end)
+
+makeSection("Config")
+
+do
+	-- Config name input field
+	local inputCard = Instance.new("Frame")
+	inputCard.Size             = UDim2.new(1, 0, 0, 44)
+	inputCard.BackgroundColor3 = BG_CARD
+	inputCard.BorderSizePixel  = 0
+	inputCard.Parent           = scrollFrame
+	Instance.new("UICorner", inputCard).CornerRadius = UDim.new(0, 8)
+
+	local inputLbl = Instance.new("TextLabel")
+	inputLbl.Size               = UDim2.new(1, -12, 0, 18)
+	inputLbl.Position           = UDim2.new(0, 12, 0, 4)
+	inputLbl.BackgroundTransparency = 1
+	inputLbl.TextColor3         = TEXT_MUTED
+	inputLbl.TextScaled         = false
+	inputLbl.TextSize           = 11
+	inputLbl.Font               = Enum.Font.GothamBold
+	inputLbl.Text               = "CONFIG NAME"
+	inputLbl.TextXAlignment     = Enum.TextXAlignment.Left
+	inputLbl.Parent             = inputCard
+
+	local inputBox = Instance.new("TextBox")
+	inputBox.Size               = UDim2.new(1, -24, 0, 18)
+	inputBox.Position           = UDim2.new(0, 12, 0, 22)
+	inputBox.BackgroundTransparency = 1
+	inputBox.TextColor3         = TEXT_PRIMARY
+	inputBox.PlaceholderColor3  = TEXT_MUTED
+	inputBox.PlaceholderText    = "e.g. default"
+	inputBox.TextScaled         = false
+	inputBox.TextSize           = 13
+	inputBox.Font               = Enum.Font.Gotham
+	inputBox.Text               = "default"
+	inputBox.TextXAlignment     = Enum.TextXAlignment.Left
+	inputBox.ClearTextOnFocus   = false
+	inputBox.Parent             = inputCard
+
+	local currentConfigName = "default"
+	inputBox:GetPropertyChangedSignal("Text"):Connect(function()
+		currentConfigName = inputBox.Text
+	end)
+
+	-- Save / Load buttons side by side
+	local btnRow = Instance.new("Frame")
+	btnRow.Size             = UDim2.new(1, 0, 0, 34)
+	btnRow.BackgroundTransparency = 1
+	btnRow.Parent           = scrollFrame
+	local btnLayout = Instance.new("UIListLayout")
+	btnLayout.FillDirection = Enum.FillDirection.Horizontal
+	btnLayout.Padding       = UDim.new(0, 4)
+	btnLayout.Parent        = btnRow
+
+	local saveBtn = Instance.new("TextButton")
+	saveBtn.Size             = UDim2.new(0.5, -2, 1, 0)
+	saveBtn.BackgroundColor3 = ACCENT_COLOR
+	saveBtn.TextColor3       = BG_DEEP
+	saveBtn.TextScaled       = false
+	saveBtn.TextSize         = 12
+	saveBtn.Font             = Enum.Font.GothamBold
+	saveBtn.Text             = "💾  Save"
+	saveBtn.BorderSizePixel  = 0
+	saveBtn.Parent           = btnRow
+	Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 8)
+	saveBtn.MouseButton1Click:Connect(function()
+		if currentConfigName ~= "" then
+			saveConfig(currentConfigName)
+		end
+	end)
+
+	local loadBtn = Instance.new("TextButton")
+	loadBtn.Size             = UDim2.new(0.5, -2, 1, 0)
+	loadBtn.BackgroundColor3 = BG_CARD
+	loadBtn.TextColor3       = TEXT_PRIMARY
+	loadBtn.TextScaled       = false
+	loadBtn.TextSize         = 12
+	loadBtn.Font             = Enum.Font.GothamBold
+	loadBtn.Text             = "📂  Load"
+	loadBtn.BorderSizePixel  = 0
+	loadBtn.Parent           = btnRow
+	Instance.new("UICorner", loadBtn).CornerRadius = UDim.new(0, 8)
+	loadBtn.MouseButton1Click:Connect(function()
+		if currentConfigName ~= "" then
+			loadConfig(currentConfigName, false)
+		end
+	end)
+
+	-- Autoload toggle row
+	local autoRow = Instance.new("Frame")
+	autoRow.Size             = UDim2.new(1, 0, 0, 34)
+	autoRow.BackgroundTransparency = 1
+	autoRow.Parent           = scrollFrame
+	local autoRowLayout = Instance.new("UIListLayout")
+	autoRowLayout.FillDirection = Enum.FillDirection.Horizontal
+	autoRowLayout.Padding       = UDim.new(0, 4)
+	autoRowLayout.Parent        = autoRow
+
+	local setAutoBtn = Instance.new("TextButton")
+	setAutoBtn.Size             = UDim2.new(0.5, -2, 1, 0)
+	setAutoBtn.BackgroundColor3 = BG_CARD
+	setAutoBtn.TextColor3       = TEXT_MUTED
+	setAutoBtn.TextScaled       = false
+	setAutoBtn.TextSize         = 11
+	setAutoBtn.Font             = Enum.Font.Gotham
+	setAutoBtn.Text             = "⚡ Set Autoload"
+	setAutoBtn.BorderSizePixel  = 0
+	setAutoBtn.Parent           = autoRow
+	Instance.new("UICorner", setAutoBtn).CornerRadius = UDim.new(0, 8)
+	setAutoBtn.MouseButton1Click:Connect(function()
+		if currentConfigName ~= "" then
+			setAutoload(currentConfigName)
+			setStatus("Autoload set: " .. currentConfigName)
+		end
+	end)
+
+	local clearAutoBtn = Instance.new("TextButton")
+	clearAutoBtn.Size             = UDim2.new(0.5, -2, 1, 0)
+	clearAutoBtn.BackgroundColor3 = BG_CARD
+	clearAutoBtn.TextColor3       = TEXT_MUTED
+	clearAutoBtn.TextScaled       = false
+	clearAutoBtn.TextSize         = 11
+	clearAutoBtn.Font             = Enum.Font.Gotham
+	clearAutoBtn.Text             = "✖ Clear Autoload"
+	clearAutoBtn.BorderSizePixel  = 0
+	clearAutoBtn.Parent           = autoRow
+	Instance.new("UICorner", clearAutoBtn).CornerRadius = UDim.new(0, 8)
+	clearAutoBtn.MouseButton1Click:Connect(function()
+		clearAutoload()
+		setStatus("Autoload cleared")
+	end)
+
+	-- Saved configs list
+	local listCard = Instance.new("Frame")
+	listCard.Size             = UDim2.new(1, 0, 0, 100)
+	listCard.BackgroundColor3 = BG_CARD
+	listCard.BorderSizePixel  = 0
+	listCard.Parent           = scrollFrame
+	Instance.new("UICorner", listCard).CornerRadius = UDim.new(0, 8)
+
+	local listLbl = Instance.new("TextLabel")
+	listLbl.Size               = UDim2.new(1, -12, 0, 18)
+	listLbl.Position           = UDim2.new(0, 12, 0, 4)
+	listLbl.BackgroundTransparency = 1
+	listLbl.TextColor3         = TEXT_MUTED
+	listLbl.TextScaled         = false
+	listLbl.TextSize           = 11
+	listLbl.Font               = Enum.Font.GothamBold
+	listLbl.Text               = "SAVED CONFIGS"
+	listLbl.TextXAlignment     = Enum.TextXAlignment.Left
+	listLbl.Parent             = listCard
+
+	local configScroll = Instance.new("ScrollingFrame")
+	configScroll.Size                = UDim2.new(1, -12, 1, -26)
+	configScroll.Position            = UDim2.new(0, 6, 0, 22)
+	configScroll.BackgroundTransparency = 1
+	configScroll.BorderSizePixel     = 0
+	configScroll.ScrollBarThickness  = 2
+	configScroll.ScrollBarImageColor3 = ACCENT_COLOR
+	configScroll.CanvasSize          = UDim2.new(0, 0, 0, 0)
+	configScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	configScroll.Parent              = listCard
+	Instance.new("UIListLayout", configScroll).Padding = UDim.new(0, 3)
+
+	local configBtns = {}
+	local autoloadName_current = getAutoload()
+
+	local function refreshConfigList()
+		for _, b in ipairs(configBtns) do b:Destroy() end
+		configBtns = {}
+		autoloadName_current = getAutoload()
+		local names = listConfigs()
+		if #names == 0 then
+			local empty = Instance.new("TextLabel")
+			empty.Size               = UDim2.new(1, 0, 0, 22)
+			empty.BackgroundTransparency = 1
+			empty.TextColor3         = TEXT_MUTED
+			empty.TextScaled         = false
+			empty.TextSize           = 11
+			empty.Font               = Enum.Font.Gotham
+			empty.Text               = "No configs saved yet"
+			empty.Parent             = configScroll
+			table.insert(configBtns, empty)
+		else
+			for _, name in ipairs(names) do
+				local isAuto = name == autoloadName_current
+				local chip = Instance.new("TextButton")
+				chip.Size             = UDim2.new(1, 0, 0, 24)
+				chip.BackgroundColor3 = isAuto and ACCENT_COLOR or BG_ELEMENT
+				chip.TextColor3       = isAuto and BG_DEEP or TEXT_MUTED
+				chip.TextScaled       = false
+				chip.TextSize         = 11
+				chip.Font             = isAuto and Enum.Font.GothamBold or Enum.Font.Gotham
+				chip.Text             = (isAuto and "⚡ " or "") .. name
+				chip.BorderSizePixel  = 0
+				chip.Parent           = configScroll
+				Instance.new("UICorner", chip).CornerRadius = UDim.new(0, 5)
+				chip.MouseButton1Click:Connect(function()
+					inputBox.Text       = name
+					currentConfigName   = name
+					loadConfig(name, false)
+					refreshConfigList()
+				end)
+				table.insert(configBtns, chip)
+			end
+		end
+	end
+
+	-- Refresh config list button
+	local refreshCfgBtn = Instance.new("TextButton")
+	refreshCfgBtn.Size             = UDim2.new(1, 0, 0, 28)
+	refreshCfgBtn.BackgroundColor3 = BG_CARD
+	refreshCfgBtn.TextColor3       = TEXT_MUTED
+	refreshCfgBtn.TextScaled       = false
+	refreshCfgBtn.TextSize         = 11
+	refreshCfgBtn.Font             = Enum.Font.Gotham
+	refreshCfgBtn.Text             = "🔄  Refresh Config List"
+	refreshCfgBtn.BorderSizePixel  = 0
+	refreshCfgBtn.Parent           = scrollFrame
+	Instance.new("UICorner", refreshCfgBtn).CornerRadius = UDim.new(0, 8)
+	refreshCfgBtn.MouseButton1Click:Connect(refreshConfigList)
+
+	refreshConfigList()
+end
 
 -- ============================================================
 -- KEYBINDS
@@ -818,7 +1213,8 @@ end)
 -- ============================================================
 -- MAIN LOOP
 -- ============================================================
-local autoFarmTimer = 0
+local autoFarmTimer   = 0
+local dropsEmptyTimer = 0  -- counts up when autoServerhop on and no drops exist
 
 RunService.Heartbeat:Connect(function(dt)
 	local character = player.Character
@@ -875,10 +1271,35 @@ RunService.Heartbeat:Connect(function(dt)
 			end
 		end
 	elseif state.autoCollect then
-		local dropPos = getNearestDrop()
-		if dropPos then
-			root.CFrame = CFrame.new(dropPos + Vector3.new(0, 3, 0))
+		-- collect all drops in sequence, not just nearest
+		for _, drop in ipairs(DROP_FOLDER:GetChildren()) do
+			if drop:IsA("Model") then
+				local x, y, z = drop:FindFirstChild("x"), drop:FindFirstChild("y"), drop:FindFirstChild("z")
+				if x and y and z then
+					root.CFrame = CFrame.new(Vector3.new(x.Value, y.Value + 3, z.Value))
+					break -- move one per frame, loop continues next tick
+				end
+			end
 		end
+	end
+
+	-- Auto serverhop: count how long drops folder has been empty
+	if state.autoServerhop then
+		local hasDrops = #DROP_FOLDER:GetChildren() > 0
+		if hasDrops then
+			dropsEmptyTimer = 0
+			setStatus("Drops: " .. #DROP_FOLDER:GetChildren() .. " remaining")
+		else
+			dropsEmptyTimer += dt
+			local remaining = math.ceil(3 - dropsEmptyTimer)
+			if dropsEmptyTimer < 3 then
+				setStatus("No drops — hopping in " .. remaining .. "s")
+			else
+				doServerhop()
+			end
+		end
+	else
+		dropsEmptyTimer = 0
 	end
 end)
 
