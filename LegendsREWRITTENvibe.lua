@@ -383,6 +383,19 @@ local function listConfigs()
 end
 
 -- ============================================================
+-- STATUS BAR (forward-declared so doServerhop can use it)
+-- ============================================================
+local statusLabel  -- assigned when GUI is built; stub used until then
+local function setStatus(msg)
+	if statusLabel then
+		statusLabel.Text = msg
+		task.delay(3, function()
+			if statusLabel.Text == msg then statusLabel.Text = "ready" end
+		end)
+	end
+end
+
+-- ============================================================
 -- SERVERHOP  (skips full servers, retries on failure)
 -- ============================================================
 local isHopping = false
@@ -422,14 +435,13 @@ local function doServerhop()
 					"/servers/Public?sortOrder=Asc&limit=100"
 				)
 
-				-- Parse each server entry: grab id and playing count together
+				-- FIX: robust parsing — grab each id then lazily scan forward for
+				-- the playing count before the closing brace, handling nested fields.
 				local servers = {}
-				for entry in response:gmatch('{"id":"[^}]+"[^}]*}') do
-					local jobId  = entry:match('"id":"([^"]+)"')
-					local playing = tonumber(entry:match('"playing":(%d+)'))
-					if jobId and jobId ~= currentJobId then
-						-- if playing is nil we couldn't parse it; allow it through
-						local isFull = playing and playing >= maxPlayers
+				for jobId, rest in response:gmatch('"id":"([^"]+)"(.-)%}') do
+					if jobId ~= currentJobId then
+						local playing = tonumber(rest:match('"playing":(%d+)'))
+						local isFull  = playing and playing >= maxPlayers
 						if not isFull then
 							table.insert(servers, jobId)
 						end
@@ -578,7 +590,8 @@ statusDot.BorderSizePixel  = 0
 statusDot.Parent           = statusBar
 Instance.new("UICorner", statusDot).CornerRadius = UDim.new(1, 0)
 
-local statusLabel = Instance.new("TextLabel")
+-- Assign the real statusLabel now that the GUI element exists
+statusLabel = Instance.new("TextLabel")
 statusLabel.Size               = UDim2.new(1, -28, 1, 0)
 statusLabel.Position           = UDim2.new(0, 24, 0, 0)
 statusLabel.BackgroundTransparency = 1
@@ -589,13 +602,6 @@ statusLabel.Font               = Enum.Font.Gotham
 statusLabel.Text               = "Sharmoodie"
 statusLabel.TextXAlignment     = Enum.TextXAlignment.Left
 statusLabel.Parent             = statusBar
-
-local function setStatus(msg)
-	statusLabel.Text = msg
-	task.delay(3, function()
-		if statusLabel.Text == msg then statusLabel.Text = "ready" end
-	end)
-end
 
 local scrollFrame = Instance.new("ScrollingFrame")
 scrollFrame.Size                = UDim2.new(1, -8, 1, -84)
@@ -1319,16 +1325,24 @@ RunService.Heartbeat:Connect(function(dt)
 		end
 	end
 
+	-- FIX: Auto Serverhop now only counts CursedFinger drops, so non-target
+	-- drops sitting in the folder will no longer block the server hop.
 	if state.autoServerhop then
-		local hasDrops = #DROP_FOLDER:GetChildren() > 0
-		if hasDrops then
+		local curseCount = 0
+		for _, drop in ipairs(DROP_FOLDER:GetChildren()) do
+			if drop.Name == "CursedFinger" then
+				curseCount += 1
+			end
+		end
+
+		if curseCount > 0 then
 			dropsEmptyTimer = 0
-			setStatus("Drops: " .. #DROP_FOLDER:GetChildren() .. " remaining")
+			setStatus("Drops: " .. curseCount .. " remaining")
 		else
 			dropsEmptyTimer += dt
 			local remaining = math.ceil(3 - dropsEmptyTimer)
 			if dropsEmptyTimer < 3 then
-				setStatus("No drops — hopping in " .. remaining .. "s")
+				setStatus("No cursed fingers — hopping in " .. remaining .. "s")
 			else
 				doServerhop()
 			end
