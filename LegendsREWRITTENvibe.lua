@@ -17,19 +17,15 @@ local Camera      = workspace.CurrentCamera
 local DEFAULT_SPEED = 16
 local HACK_SPEED    = 120
 
--- WindUI-inspired palette
 local BG_DEEP      = Color3.fromRGB(10,  10,  14)
 local BG_PANEL     = Color3.fromRGB(16,  16,  22)
 local BG_CARD      = Color3.fromRGB(22,  22,  30)
 local BG_ELEMENT   = Color3.fromRGB(28,  28,  38)
 local BORDER_COLOR = Color3.fromRGB(40,  40,  58)
 local ACCENT_COLOR = Color3.fromRGB(48,  255, 106)
-local ON_COLOR     = Color3.fromRGB(48,  255, 106)
-local OFF_COLOR    = BG_ELEMENT
 local TEXT_PRIMARY = Color3.fromRGB(235, 235, 245)
 local TEXT_MUTED   = Color3.fromRGB(130, 135, 158)
 local TEXT_SECTION = Color3.fromRGB(80,  84,  105)
-local RED_ACCENT   = Color3.fromRGB(239, 79,  29)
 
 local ESP_TEXT_COLOR = Color3.fromRGB(235, 235, 245)
 local ESP_DIST_COLOR = Color3.fromRGB(130, 180, 255)
@@ -40,21 +36,29 @@ local ESP_BOX_THICK  = 1
 -- STATE
 -- ============================================================
 local state = {
-	guiVisible   = true,
-	mobESP       = false,
-	autoFarm     = false,
-	autoCollect  = false,
-	noclip       = false,
-	speedHack    = false,
-	flyHack      = false,
-	selectedMob  = nil,
-	farmDistance = 5,
-	flySpeed     = 60,
-	attackRate   = 0.3,
-	espMaxDist      = 300,
-	autoServerhop   = false,
-	noStun       = false,
+	guiVisible    = true,
+	mobESP        = false,
+	autoFarm      = false,
+	autoCollect   = false,
+	noclip        = false,
+	speedHack     = false,
+	flyHack       = false,
+	selectedMob   = nil,
+	farmDistance  = 5,
+	flySpeed      = 60,
+	attackRate    = 0.3,
+	espMaxDist    = 300,
+	autoServerhop = false,
+	noStun        = false,
 }
+
+-- Registry for UI refresh callbacks — populated as GUI is built
+-- refreshAllUI() is called after autoload so visuals match loaded state
+local uiRefreshCallbacks = {}
+local function registerRefresh(fn) table.insert(uiRefreshCallbacks, fn) end
+local function refreshAllUI()
+	for _, fn in ipairs(uiRefreshCallbacks) do pcall(fn) end
+end
 
 -- ============================================================
 -- FLY HELPERS
@@ -127,7 +131,6 @@ end
 local function addESP(mob)
 	if espData[mob] then return end
 	if not mob:IsA("Model") then return end
-	local boxColor  = Color3.fromRGB(48, 255, 106)
 	local hbOutline = Drawing.new("Square")
 	hbOutline.Visible      = false
 	hbOutline.Color        = Color3.fromRGB(0, 0, 0)
@@ -154,7 +157,7 @@ local function addESP(mob)
 	distText.Font         = 2
 	distText.Color        = ESP_DIST_COLOR
 	espData[mob] = {
-		box       = makeCornerBox(boxColor),
+		box       = makeCornerBox(Color3.fromRGB(48, 255, 106)),
 		hbOutline = hbOutline,
 		hbFill    = hbFill,
 		nameText  = nameText,
@@ -173,8 +176,8 @@ end
 
 local function hideESP(d)
 	for _, ln in pairs(d.box) do ln.Visible = false end
-	d.hbOutline.Visible = false; d.hbFill.Visible   = false
-	d.nameText.Visible  = false; d.distText.Visible  = false
+	d.hbOutline.Visible = false; d.hbFill.Visible  = false
+	d.nameText.Visible  = false; d.distText.Visible = false
 end
 
 local function updateCornerBox(box, bPos, bSize, color)
@@ -259,25 +262,6 @@ local function getTargetMob()
 	return nearest
 end
 
-local function getNearestDrop()
-	local character = player.Character
-	if not character then return nil end
-	local root = character:FindFirstChild("HumanoidRootPart")
-	if not root then return nil end
-	local nearest, shortestDist = nil, math.huge
-	for _, drop in ipairs(DROP_FOLDER:GetChildren()) do
-		if drop:IsA("Model") then
-			local x, y, z = drop:FindFirstChild("x"), drop:FindFirstChild("y"), drop:FindFirstChild("z")
-			if x and y and z then
-				local pos  = Vector3.new(x.Value, y.Value, z.Value)
-				local dist = (root.Position - pos).Magnitude
-				if dist < shortestDist then shortestDist = dist; nearest = pos end
-			end
-		end
-	end
-	return nearest
-end
-
 DROP_FOLDER.ChildAdded:Connect(function(drop)
 	if not state.autoCollect then return end
 	task.wait(0.3)
@@ -290,7 +274,166 @@ DROP_FOLDER.ChildAdded:Connect(function(drop)
 end)
 
 -- ============================================================
--- GUI SETUP  —  WindUI-inspired
+-- CONFIG SYSTEM  (all bugs fixed)
+-- ============================================================
+local CONFIG_FOLDER = "sharmoodie_configs"
+local AUTOLOAD_FILE = CONFIG_FOLDER .. "/autoload.txt"
+
+local CONFIG_KEYS = {
+	"mobESP", "autoFarm", "autoCollect", "noclip",
+	"speedHack", "flyHack", "selectedMob",
+	"farmDistance", "flySpeed", "attackRate",
+	"espMaxDist", "noStun", "autoServerhop",
+}
+
+local function ensureFolder()
+	local ok, err = pcall(function()
+		if not isfolder(CONFIG_FOLDER) then makefolder(CONFIG_FOLDER) end
+	end)
+	return ok
+end
+
+-- BUG FIX 1: serialise with explicit ordering and proper nil/string escaping
+local function serializeState()
+	local parts = {}
+	for _, k in ipairs(CONFIG_KEYS) do
+		local v = state[k]
+		local encoded
+		if v == nil then
+			encoded = "null"
+		elseif type(v) == "boolean" then
+			encoded = v and "true" or "false"
+		elseif type(v) == "number" then
+			encoded = tostring(v)
+		elseif type(v) == "string" then
+			encoded = '"' .. v:gsub('\\','\\\\'):gsub('"','\\"') .. '"'
+		else
+			encoded = "null"
+		end
+		table.insert(parts, '"' .. k .. '":' .. encoded)
+	end
+	return "{" .. table.concat(parts, ",") .. "}"
+end
+
+-- BUG FIX 2: parse booleans BEFORE numbers so "true"/"false" are never
+-- captured by the number pattern; also guard against overwriting booleans
+local function deserializeJSON(s)
+	local t = {}
+	for k in s:gmatch('"([^"]+)":true') do  t[k] = true  end
+	for k in s:gmatch('"([^"]+)":false') do t[k] = false end
+	for k, v in s:gmatch('"([^"]+)":(%-?%d+%.?%d*)') do
+		if t[k] == nil then t[k] = tonumber(v) end
+	end
+	for k, v in s:gmatch('"([^"]+)":"([^"]*)"') do
+		if t[k] == nil then t[k] = v end
+	end
+	return t
+end
+
+local function saveConfig(name)
+	if not ensureFolder() then return false, "Filesystem unavailable" end
+	local path = CONFIG_FOLDER .. "/" .. name .. ".json"
+	local ok, err = pcall(writefile, path, serializeState())
+	if ok then return true,  "Config saved: " .. name
+	       else return false, "Save failed: " .. tostring(err) end
+end
+
+-- Returns parsed table + nil error, or nil + error string
+local function readConfig(name)
+	if not ensureFolder() then return nil, "Filesystem unavailable" end
+	local path = CONFIG_FOLDER .. "/" .. name .. ".json"
+	local ok, data = pcall(readfile, path)
+	if not ok or not data or data == "" then
+		return nil, "Config not found: " .. name
+	end
+	return deserializeJSON(data), nil
+end
+
+local function applyConfig(t)
+	for _, k in ipairs(CONFIG_KEYS) do
+		if t[k] ~= nil then state[k] = t[k] end
+	end
+end
+
+local function setAutoload(name)
+	if not ensureFolder() then return false end
+	return pcall(writefile, AUTOLOAD_FILE, name)
+end
+
+local function clearAutoload()
+	if not ensureFolder() then return end
+	pcall(writefile, AUTOLOAD_FILE, "")
+end
+
+local function getAutoload()
+	local ok, data = pcall(readfile, AUTOLOAD_FILE)
+	if ok and data and data ~= "" then
+		return (data:match("^%s*(.-)%s*$"))  -- trim whitespace
+	end
+	return nil
+end
+
+local function listConfigs()
+	local names = {}
+	if not ensureFolder() then return names end
+	local ok, files = pcall(listfiles, CONFIG_FOLDER)
+	if ok and files then
+		for _, path in ipairs(files) do
+			local name = path:match("[/\\]([^/\\]+)%.json$") or path:match("^([^/\\]+)%.json$")
+			if name then table.insert(names, name) end
+		end
+	end
+	return names
+end
+
+-- ============================================================
+-- SERVERHOP  (fetches server list, picks a different one)
+-- ============================================================
+local isHopping = false
+
+local function doServerhop()
+	if isHopping then return end
+	isHopping = true
+
+	-- Re-queue this script to run after teleport so autoload fires again
+	pcall(function()
+		if queue_on_teleport then
+			local src
+			for _, fname in ipairs({"sharmoodie.lua","Sharmoodie.lua","SharmoodieHub.lua"}) do
+				local ok, content = pcall(readfile, fname)
+				if ok and content and #content > 100 then src = content; break end
+			end
+			if src then queue_on_teleport(src) end
+		end
+	end)
+
+	task.spawn(function()
+		local ok = pcall(function()
+			local currentJobId = game.JobId
+			local servers = {}
+			local response = game:HttpGetAsync(
+				"https://games.roblox.com/v1/games/" .. game.PlaceId ..
+				"/servers/Public?sortOrder=Asc&limit=100"
+			)
+			for jobId in response:gmatch('"id":"([^"]+)"') do
+				if jobId ~= currentJobId then table.insert(servers, jobId) end
+			end
+			if #servers == 0 then isHopping = false; return end
+			local chosen = servers[math.random(1, #servers)]
+			task.wait(0.5)
+			TeleportService:TeleportToPlaceInstance(game.PlaceId, chosen, player)
+		end)
+		if not ok then
+			task.wait(0.5)
+			pcall(function() TeleportService:Teleport(game.PlaceId, player) end)
+			task.wait(3)
+			isHopping = false
+		end
+	end)
+end
+
+-- ============================================================
+-- GUI SETUP
 -- ============================================================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name           = "SharmoodieHub"
@@ -299,7 +442,6 @@ screenGui.IgnoreGuiInset = true
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.Parent         = player.PlayerGui
 
--- Outer shadow frame
 local shadow = Instance.new("Frame")
 shadow.Size             = UDim2.new(0, 268, 0, 580)
 shadow.Position         = UDim2.new(0, 8, 0.5, -290)
@@ -310,7 +452,6 @@ shadow.Draggable        = true
 shadow.Parent           = screenGui
 Instance.new("UICorner", shadow).CornerRadius = UDim.new(0, 12)
 
--- Main panel (inset 1px for border illusion)
 local mainFrame = Instance.new("Frame")
 mainFrame.Size             = UDim2.new(1, -2, 1, -2)
 mainFrame.Position         = UDim2.new(0, 1, 0, 1)
@@ -319,7 +460,6 @@ mainFrame.BorderSizePixel  = 0
 mainFrame.Parent           = shadow
 Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 11)
 
--- Top bar
 local topBar = Instance.new("Frame")
 topBar.Size             = UDim2.new(1, 0, 0, 48)
 topBar.BackgroundColor3 = BG_CARD
@@ -327,7 +467,6 @@ topBar.BorderSizePixel  = 0
 topBar.Parent           = mainFrame
 Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 11)
 
--- Bottom-square corners on topbar (visual trick)
 local topBarSquare = Instance.new("Frame")
 topBarSquare.Size             = UDim2.new(1, 0, 0, 12)
 topBarSquare.Position         = UDim2.new(0, 0, 1, -12)
@@ -335,7 +474,6 @@ topBarSquare.BackgroundColor3 = BG_CARD
 topBarSquare.BorderSizePixel  = 0
 topBarSquare.Parent           = topBar
 
--- Accent dot
 local accentDot = Instance.new("Frame")
 accentDot.Size             = UDim2.new(0, 8, 0, 8)
 accentDot.Position         = UDim2.new(0, 14, 0.5, -4)
@@ -344,7 +482,6 @@ accentDot.BorderSizePixel  = 0
 accentDot.Parent           = topBar
 Instance.new("UICorner", accentDot).CornerRadius = UDim.new(1, 0)
 
--- Title
 local titleLabel = Instance.new("TextLabel")
 titleLabel.Size               = UDim2.new(1, -90, 1, 0)
 titleLabel.Position           = UDim2.new(0, 30, 0, 0)
@@ -357,7 +494,6 @@ titleLabel.Text               = "SHARMOODIE"
 titleLabel.TextXAlignment     = Enum.TextXAlignment.Left
 titleLabel.Parent             = topBar
 
--- Keybind badge
 local keyBadge = Instance.new("TextLabel")
 keyBadge.Size               = UDim2.new(0, 58, 0, 22)
 keyBadge.Position           = UDim2.new(1, -66, 0.5, -11)
@@ -371,7 +507,6 @@ keyBadge.Text               = "RAlt"
 keyBadge.Parent             = topBar
 Instance.new("UICorner", keyBadge).CornerRadius = UDim.new(0, 6)
 
--- Thin separator line under topbar
 local sep = Instance.new("Frame")
 sep.Size             = UDim2.new(1, -24, 0, 1)
 sep.Position         = UDim2.new(0, 12, 0, 48)
@@ -379,7 +514,6 @@ sep.BackgroundColor3 = BORDER_COLOR
 sep.BorderSizePixel  = 0
 sep.Parent           = mainFrame
 
--- Status bar at bottom
 local statusBar = Instance.new("Frame")
 statusBar.Size             = UDim2.new(1, 0, 0, 28)
 statusBar.Position         = UDim2.new(0, 0, 1, -28)
@@ -422,7 +556,6 @@ local function setStatus(msg)
 	end)
 end
 
--- Scroll area
 local scrollFrame = Instance.new("ScrollingFrame")
 scrollFrame.Size                = UDim2.new(1, -8, 1, -84)
 scrollFrame.Position            = UDim2.new(0, 4, 0, 54)
@@ -446,23 +579,19 @@ listPadding.PaddingBottom = UDim.new(0, 6)
 listPadding.Parent        = scrollFrame
 
 -- ============================================================
--- GUI HELPERS  —  WindUI-inspired
+-- GUI HELPERS
 -- ============================================================
-
--- Section header  (e.g.  "— COMBAT —")
 local function makeSection(text)
 	local row = Instance.new("Frame")
 	row.Size             = UDim2.new(1, 0, 0, 28)
 	row.BackgroundTransparency = 1
 	row.Parent           = scrollFrame
-
 	local lline = Instance.new("Frame")
 	lline.Size             = UDim2.new(0, 18, 0, 1)
 	lline.Position         = UDim2.new(0, 0, 0.5, 0)
 	lline.BackgroundColor3 = BORDER_COLOR
 	lline.BorderSizePixel  = 0
 	lline.Parent           = row
-
 	local lbl = Instance.new("TextLabel")
 	lbl.Size               = UDim2.new(1, -44, 1, 0)
 	lbl.Position           = UDim2.new(0, 22, 0, 0)
@@ -474,11 +603,10 @@ local function makeSection(text)
 	lbl.Text               = text:upper()
 	lbl.TextXAlignment     = Enum.TextXAlignment.Left
 	lbl.Parent             = row
-
 	return row
 end
 
--- Toggle  (pill-style switch, WindUI aesthetic)
+-- BUG FIX 3: makeToggle registers refresh so autoload can sync visuals
 local function makeToggle(label, stateKey, onToggle, keySuffix)
 	local card = Instance.new("Frame")
 	card.Size             = UDim2.new(1, 0, 0, 40)
@@ -487,7 +615,6 @@ local function makeToggle(label, stateKey, onToggle, keySuffix)
 	card.Parent           = scrollFrame
 	Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
 
-	-- left accent stripe (hidden when off)
 	local stripe = Instance.new("Frame")
 	stripe.Size             = UDim2.new(0, 3, 0.6, 0)
 	stripe.Position         = UDim2.new(0, 0, 0.2, 0)
@@ -509,7 +636,6 @@ local function makeToggle(label, stateKey, onToggle, keySuffix)
 	lbl.TextXAlignment     = Enum.TextXAlignment.Left
 	lbl.Parent             = card
 
-	-- pill track
 	local track = Instance.new("Frame")
 	track.Size             = UDim2.new(0, 36, 0, 18)
 	track.Position         = UDim2.new(1, -46, 0.5, -9)
@@ -535,7 +661,8 @@ local function makeToggle(label, stateKey, onToggle, keySuffix)
 		stripe.Visible         = on
 	end
 
-	-- invisible click button over whole card
+	registerRefresh(refresh)  -- so refreshAllUI() syncs this after autoload
+
 	local btn = Instance.new("TextButton")
 	btn.Size             = UDim2.new(1, 0, 1, 0)
 	btn.BackgroundTransparency = 1
@@ -552,8 +679,9 @@ local function makeToggle(label, stateKey, onToggle, keySuffix)
 	return { refresh = refresh }
 end
 
--- Slider  (clean WindUI style with value pill)
-local function makeSlider(labelText, minVal, maxVal, defaultVal, onChange)
+-- BUG FIX 4: makeSlider takes optional stateKey so it can write + read state;
+-- refresh() reads current state so slider position matches after autoload
+local function makeSlider(labelText, minVal, maxVal, defaultVal, stateKey, onChange)
 	local card = Instance.new("Frame")
 	card.Size             = UDim2.new(1, 0, 0, 56)
 	card.BackgroundColor3 = BG_CARD
@@ -573,7 +701,6 @@ local function makeSlider(labelText, minVal, maxVal, defaultVal, onChange)
 	lbl.TextXAlignment     = Enum.TextXAlignment.Left
 	lbl.Parent             = card
 
-	-- value pill (top right)
 	local valPill = Instance.new("TextLabel")
 	valPill.Size               = UDim2.new(0, 48, 0, 20)
 	valPill.Position           = UDim2.new(1, -56, 0, 5)
@@ -587,7 +714,6 @@ local function makeSlider(labelText, minVal, maxVal, defaultVal, onChange)
 	valPill.Parent             = card
 	Instance.new("UICorner", valPill).CornerRadius = UDim.new(0, 6)
 
-	-- track
 	local track = Instance.new("Frame")
 	track.Size             = UDim2.new(1, -24, 0, 4)
 	track.Position         = UDim2.new(0, 12, 0, 36)
@@ -613,6 +739,17 @@ local function makeSlider(labelText, minVal, maxVal, defaultVal, onChange)
 	knob.Parent           = track
 	Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
 
+	local function refresh()
+		local cur = stateKey and state[stateKey] or defaultVal
+		if type(cur) ~= "number" then cur = defaultVal end
+		local relX = math.clamp((cur - minVal) / (maxVal - minVal), 0, 1)
+		fill.Size     = UDim2.new(relX, 0, 1, 0)
+		knob.Position = UDim2.new(relX, 0, 0.5, 0)
+		valPill.Text  = tostring(math.floor(cur))
+	end
+
+	registerRefresh(refresh)
+
 	local dragging = false
 	knob.MouseButton1Down:Connect(function() dragging = true end)
 	UserInputService.InputEnded:Connect(function(i)
@@ -626,7 +763,8 @@ local function makeSlider(labelText, minVal, maxVal, defaultVal, onChange)
 		fill.Size     = UDim2.new(relX, 0, 1, 0)
 		knob.Position = UDim2.new(relX, 0, 0.5, 0)
 		valPill.Text  = tostring(val)
-		if onChange then onChange(val) end
+		if stateKey then state[stateKey] = val end
+		if onChange  then onChange(val) end
 	end)
 end
 
@@ -685,21 +823,19 @@ local function makeMobList()
 	local function refreshList()
 		for _, b in ipairs(mobButtons) do b:Destroy() end
 		mobButtons = {}; seen = {}
-
 		local anyBtn = makeChip(scroll, "⚡  Any / Nearest", state.selectedMob == nil, function()
 			state.selectedMob = nil
 			for _, b in ipairs(mobButtons) do
-				b.BackgroundColor3 = BG_ELEMENT
-				b.TextColor3       = TEXT_MUTED
-				b.Font             = Enum.Font.Gotham
+				b.BackgroundColor3 = BG_ELEMENT; b.TextColor3 = TEXT_MUTED; b.Font = Enum.Font.Gotham
 			end
-			mobButtons[1].BackgroundColor3 = ACCENT_COLOR
-			mobButtons[1].TextColor3       = BG_DEEP
-			mobButtons[1].Font             = Enum.Font.GothamBold
+			if mobButtons[1] then
+				mobButtons[1].BackgroundColor3 = ACCENT_COLOR
+				mobButtons[1].TextColor3       = BG_DEEP
+				mobButtons[1].Font             = Enum.Font.GothamBold
+			end
 			setStatus("Target: Any")
 		end)
 		table.insert(mobButtons, anyBtn)
-
 		for _, mob in ipairs(MOB_FOLDER:GetChildren()) do
 			if mob:IsA("Model") and not seen[mob.Name] then
 				seen[mob.Name] = true
@@ -708,16 +844,11 @@ local function makeMobList()
 				local btn = makeChip(scroll, mobName, isSelected, function()
 					state.selectedMob = mobName
 					for _, b in ipairs(mobButtons) do
-						b.BackgroundColor3 = BG_ELEMENT
-						b.TextColor3       = TEXT_MUTED
-						b.Font             = Enum.Font.Gotham
+						b.BackgroundColor3 = BG_ELEMENT; b.TextColor3 = TEXT_MUTED; b.Font = Enum.Font.Gotham
 					end
-					-- find the clicked button and highlight
 					for _, b in ipairs(mobButtons) do
 						if b.Text == mobName then
-							b.BackgroundColor3 = ACCENT_COLOR
-							b.TextColor3       = BG_DEEP
-							b.Font             = Enum.Font.GothamBold
+							b.BackgroundColor3 = ACCENT_COLOR; b.TextColor3 = BG_DEEP; b.Font = Enum.Font.GothamBold
 						end
 					end
 					setStatus("Target: " .. mobName)
@@ -727,7 +858,6 @@ local function makeMobList()
 		end
 	end
 
-	-- Refresh button below the card
 	local refreshBtn = Instance.new("TextButton")
 	refreshBtn.Size             = UDim2.new(1, 0, 0, 30)
 	refreshBtn.BackgroundColor3 = BG_CARD
@@ -739,204 +869,17 @@ local function makeMobList()
 	refreshBtn.BorderSizePixel  = 0
 	refreshBtn.Parent           = scrollFrame
 	Instance.new("UICorner", refreshBtn).CornerRadius = UDim.new(0, 8)
-	refreshBtn.MouseButton1Click:Connect(function()
-		refreshList()
-		setStatus("Mob list refreshed")
-	end)
-
+	refreshBtn.MouseButton1Click:Connect(function() refreshList(); setStatus("Mob list refreshed") end)
 	MOB_FOLDER.ChildAdded:Connect(function()   task.wait(0.5); refreshList() end)
 	MOB_FOLDER.ChildRemoved:Connect(function() task.wait(0.5); refreshList() end)
 	refreshList()
 end
 
 -- ============================================================
--- SERVERHOP  (fixed: fetches server list and picks a different one)
--- ============================================================
-local isHopping = false
-
-local function doServerhop()
-	if isHopping then return end
-	isHopping = true
-	setStatus("Finding new server...")
-
-	pcall(function()
-		if queue_on_teleport then
-			queue_on_teleport(readfile("sharmoodie.lua"))
-		end
-	end)
-
-	task.spawn(function()
-		local success, result = pcall(function()
-			local currentJobId = game.JobId
-			local servers = {}
-
-			local response = game:HttpGetAsync(
-				"https://games.roblox.com/v1/games/" .. game.PlaceId ..
-				"/servers/Public?sortOrder=Asc&limit=100"
-			)
-
-			for jobId in response:gmatch('"id":"([^"]+)"') do
-				if jobId ~= currentJobId then
-					table.insert(servers, jobId)
-				end
-			end
-
-			if #servers == 0 then
-				setStatus("No other servers found!")
-				isHopping = false
-				return
-			end
-
-			local chosen = servers[math.random(1, #servers)]
-			setStatus("Hopping to new server...")
-			task.wait(0.5)
-			TeleportService:TeleportToPlaceInstance(game.PlaceId, chosen, player)
-		end)
-
-		if not success then
-			setStatus("Fallback hop...")
-			task.wait(0.5)
-			pcall(function()
-				TeleportService:Teleport(game.PlaceId, player)
-			end)
-			task.wait(3)
-			isHopping = false
-		end
-	end)
-end
-
--- ============================================================
--- CONFIG SYSTEM
--- ============================================================
-local CONFIG_FOLDER = "sharmoodie_configs"
-local AUTOLOAD_FILE = CONFIG_FOLDER .. "/autoload.txt"
-
--- Keys saved/loaded from config (excludes runtime-only state)
-local CONFIG_KEYS = {
-	"mobESP", "autoFarm", "autoCollect", "noclip",
-	"speedHack", "flyHack", "selectedMob",
-	"farmDistance", "flySpeed", "attackRate",
-	"espMaxDist", "noStun", "autoServerhop",
-}
-
-local function ensureFolder()
-	pcall(function()
-		if not isfolder(CONFIG_FOLDER) then
-			makefolder(CONFIG_FOLDER)
-		end
-	end)
-end
-
-local function serializeState()
-	local t = {}
-	for _, k in ipairs(CONFIG_KEYS) do
-		t[k] = state[k]
-	end
-	-- simple manual JSON encode (no HttpService needed)
-	local parts = {}
-	for k, v in pairs(t) do
-		local val
-		if type(v) == "boolean" then
-			val = v and "true" or "false"
-		elseif type(v) == "number" then
-			val = tostring(v)
-		elseif type(v) == "string" then
-			val = '"' .. v:gsub('"', '\"') .. '"'
-		else
-			val = "null"
-		end
-		table.insert(parts, '"' .. k .. '":' .. val)
-	end
-	return "{" .. table.concat(parts, ",") .. "}"
-end
-
-local function deserializeJSON(s)
-	local t = {}
-	-- booleans
-	for k, v in s:gmatch('"([^"]+)":(true|false)') do
-		t[k] = v == "true"
-	end
-	-- numbers
-	for k, v in s:gmatch('"([^"]+)":(%-?%d+%.?%d*)') do
-		t[k] = tonumber(v)
-	end
-	-- strings
-	for k, v in s:gmatch('"([^"]+)":"([^"]*)"') do
-		t[k] = v
-	end
-	-- nulls (selectedMob = null → nil, already nil so skip)
-	return t
-end
-
-local function saveConfig(name)
-	ensureFolder()
-	local path = CONFIG_FOLDER .. "/" .. name .. ".json"
-	local ok, err = pcall(writefile, path, serializeState())
-	if ok then
-		setStatus("Config saved: " .. name)
-	else
-		setStatus("Save failed!")
-	end
-end
-
-local function loadConfig(name, silent)
-	ensureFolder()
-	local path = CONFIG_FOLDER .. "/" .. name .. ".json"
-	local ok, data = pcall(readfile, path)
-	if not ok or not data then
-		if not silent then setStatus("Config not found: " .. name) end
-		return false
-	end
-	local t = deserializeJSON(data)
-	for _, k in ipairs(CONFIG_KEYS) do
-		if t[k] ~= nil then
-			state[k] = t[k]
-		end
-	end
-	if not silent then setStatus("Config loaded: " .. name) end
-	return true
-end
-
-local function setAutoload(name)
-	ensureFolder()
-	pcall(writefile, AUTOLOAD_FILE, name)
-end
-
-local function clearAutoload()
-	ensureFolder()
-	pcall(writefile, AUTOLOAD_FILE, "")
-end
-
-local function getAutoload()
-	local ok, data = pcall(readfile, AUTOLOAD_FILE)
-	if ok and data and data ~= "" then return data end
-	return nil
-end
-
-local function listConfigs()
-	local names = {}
-	local ok, files = pcall(listfiles, CONFIG_FOLDER)
-	if ok and files then
-		for _, path in ipairs(files) do
-			local name = path:match("([^/\]+)%.json$")
-			if name then table.insert(names, name) end
-		end
-	end
-	return names
-end
-
--- Autoload on startup
-local autoloadName = getAutoload()
-if autoloadName then
-	loadConfig(autoloadName, true)
-	setStatus("Autoloaded: " .. autoloadName)
-end
-
--- ============================================================
 -- BUILD GUI
 -- ============================================================
 makeSection("Combat")
-makeToggle("Mob ESP",    "mobESP", function(on)
+makeToggle("Mob ESP", "mobESP", function(on)
 	if on then
 		for _, mob in ipairs(MOB_FOLDER:GetChildren()) do
 			if mob:IsA("Model") then addESP(mob) end
@@ -945,9 +888,9 @@ makeToggle("Mob ESP",    "mobESP", function(on)
 		for mob in pairs(espData) do removeESP(mob) end
 	end
 end)
-makeSlider("ESP Distance", 20, 1000, 300, function(v) state.espMaxDist = v end)
-makeToggle("Auto Farm",  "autoFarm", nil)
-makeToggle("No Stun",    "noStun", function(on)
+makeSlider("ESP Distance",      20,   1000, 300, "espMaxDist")
+makeToggle("Auto Farm",         "autoFarm",  nil)
+makeToggle("No Stun",           "noStun", function(on)
 	local character = player.Character
 	if not character then return end
 	local humanoid = character:FindFirstChildWhichIsA("Humanoid")
@@ -956,8 +899,8 @@ makeToggle("No Stun",    "noStun", function(on)
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.PlatformStanding,  not on)
 end)
 makeMobList()
-makeSlider("Farm Distance",      2,   30,   5, function(v) state.farmDistance = v end)
-makeSlider("Attack Rate (×10)",  1,   20,   3, function(v) state.attackRate   = v / 10 end)
+makeSlider("Farm Distance",      2,    30,   5,  "farmDistance")
+makeSlider("Attack Rate (×10)",  1,    20,   3,  nil, function(v) state.attackRate = v / 10 end)
 
 makeSection("Drops")
 makeToggle("Auto Collect",    "autoCollect",   nil)
@@ -965,7 +908,6 @@ makeToggle("Auto Serverhop",  "autoServerhop", function(on)
 	setStatus("Auto Serverhop: " .. (on and "ON — watching drops" or "OFF"))
 end)
 
--- Manual hop button
 do
 	local hopBtn = Instance.new("TextButton")
 	hopBtn.Size             = UDim2.new(1, 0, 0, 36)
@@ -978,9 +920,7 @@ do
 	hopBtn.BorderSizePixel  = 0
 	hopBtn.Parent           = scrollFrame
 	Instance.new("UICorner", hopBtn).CornerRadius = UDim.new(0, 8)
-	hopBtn.MouseButton1Click:Connect(function()
-		doServerhop()
-	end)
+	hopBtn.MouseButton1Click:Connect(doServerhop)
 end
 
 makeSection("Movement")
@@ -998,12 +938,11 @@ makeToggle("Noclip", "noclip", function(on)
 		end
 	end
 end)
-makeSlider("Fly Speed", 10, 1000, 60, function(v) state.flySpeed = v end)
+makeSlider("Fly Speed", 10, 1000, 60, "flySpeed")
 
 makeSection("Config")
 
 do
-	-- Config name input field
 	local inputCard = Instance.new("Frame")
 	inputCard.Size             = UDim2.new(1, 0, 0, 44)
 	inputCard.BackgroundColor3 = BG_CARD
@@ -1043,7 +982,6 @@ do
 		currentConfigName = inputBox.Text
 	end)
 
-	-- Save / Load buttons side by side
 	local btnRow = Instance.new("Frame")
 	btnRow.Size             = UDim2.new(1, 0, 0, 34)
 	btnRow.BackgroundTransparency = 1
@@ -1066,7 +1004,8 @@ do
 	Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 8)
 	saveBtn.MouseButton1Click:Connect(function()
 		if currentConfigName ~= "" then
-			saveConfig(currentConfigName)
+			local ok, msg = saveConfig(currentConfigName)
+			setStatus(msg)
 		end
 	end)
 
@@ -1083,11 +1022,17 @@ do
 	Instance.new("UICorner", loadBtn).CornerRadius = UDim.new(0, 8)
 	loadBtn.MouseButton1Click:Connect(function()
 		if currentConfigName ~= "" then
-			loadConfig(currentConfigName, false)
+			local t, err = readConfig(currentConfigName)
+			if t then
+				applyConfig(t)
+				refreshAllUI()
+				setStatus("Config loaded: " .. currentConfigName)
+			else
+				setStatus(err or "Load failed")
+			end
 		end
 	end)
 
-	-- Autoload toggle row
 	local autoRow = Instance.new("Frame")
 	autoRow.Size             = UDim2.new(1, 0, 0, 34)
 	autoRow.BackgroundTransparency = 1
@@ -1110,8 +1055,10 @@ do
 	Instance.new("UICorner", setAutoBtn).CornerRadius = UDim.new(0, 8)
 	setAutoBtn.MouseButton1Click:Connect(function()
 		if currentConfigName ~= "" then
-			setAutoload(currentConfigName)
-			setStatus("Autoload set: " .. currentConfigName)
+			-- BUG FIX 5: always save first so the file definitely exists on rejoin
+			saveConfig(currentConfigName)
+			local ok = setAutoload(currentConfigName)
+			setStatus(ok and ("Autoload set: " .. currentConfigName) or "Autoload write failed")
 		end
 	end)
 
@@ -1127,11 +1074,9 @@ do
 	clearAutoBtn.Parent           = autoRow
 	Instance.new("UICorner", clearAutoBtn).CornerRadius = UDim.new(0, 8)
 	clearAutoBtn.MouseButton1Click:Connect(function()
-		clearAutoload()
-		setStatus("Autoload cleared")
+		clearAutoload(); setStatus("Autoload cleared")
 	end)
 
-	-- Saved configs list
 	local listCard = Instance.new("Frame")
 	listCard.Size             = UDim2.new(1, 0, 0, 100)
 	listCard.BackgroundColor3 = BG_CARD
@@ -1164,12 +1109,11 @@ do
 	Instance.new("UIListLayout", configScroll).Padding = UDim.new(0, 3)
 
 	local configBtns = {}
-	local autoloadName_current = getAutoload()
 
 	local function refreshConfigList()
 		for _, b in ipairs(configBtns) do b:Destroy() end
 		configBtns = {}
-		autoloadName_current = getAutoload()
+		local autoName = getAutoload()
 		local names = listConfigs()
 		if #names == 0 then
 			local empty = Instance.new("TextLabel")
@@ -1184,7 +1128,7 @@ do
 			table.insert(configBtns, empty)
 		else
 			for _, name in ipairs(names) do
-				local isAuto = name == autoloadName_current
+				local isAuto = name == autoName
 				local chip = Instance.new("TextButton")
 				chip.Size             = UDim2.new(1, 0, 0, 24)
 				chip.BackgroundColor3 = isAuto and ACCENT_COLOR or BG_ELEMENT
@@ -1197,9 +1141,16 @@ do
 				chip.Parent           = configScroll
 				Instance.new("UICorner", chip).CornerRadius = UDim.new(0, 5)
 				chip.MouseButton1Click:Connect(function()
-					inputBox.Text       = name
-					currentConfigName   = name
-					loadConfig(name, false)
+					inputBox.Text     = name
+					currentConfigName = name
+					local t, err = readConfig(name)
+					if t then
+						applyConfig(t)
+						refreshAllUI()
+						setStatus("Config loaded: " .. name)
+					else
+						setStatus(err or "Load failed")
+					end
 					refreshConfigList()
 				end)
 				table.insert(configBtns, chip)
@@ -1207,7 +1158,6 @@ do
 		end
 	end
 
-	-- Refresh config list button
 	local refreshCfgBtn = Instance.new("TextButton")
 	refreshCfgBtn.Size             = UDim2.new(1, 0, 0, 28)
 	refreshCfgBtn.BackgroundColor3 = BG_CARD
@@ -1222,6 +1172,24 @@ do
 	refreshCfgBtn.MouseButton1Click:Connect(refreshConfigList)
 
 	refreshConfigList()
+end
+
+-- ============================================================
+-- BUG FIX 6: AUTOLOAD runs AFTER the GUI is fully built so
+-- refreshAllUI() actually has callbacks registered to call
+-- ============================================================
+do
+	local autoName = getAutoload()
+	if autoName and autoName ~= "" then
+		local t, err = readConfig(autoName)
+		if t then
+			applyConfig(t)
+			refreshAllUI()
+			setStatus("Autoloaded: " .. autoName)
+		else
+			setStatus("Autoload failed: " .. (err or "unknown error"))
+		end
+	end
 end
 
 -- ============================================================
@@ -1249,7 +1217,7 @@ end)
 -- MAIN LOOP
 -- ============================================================
 local autoFarmTimer   = 0
-local dropsEmptyTimer = 0  -- counts up when autoServerhop on and no drops exist
+local dropsEmptyTimer = 0
 
 RunService.Heartbeat:Connect(function(dt)
 	local character = player.Character
@@ -1285,9 +1253,7 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 
 	if state.mobESP then
-		for mob, d in pairs(espData) do
-			updateESP(mob, d, root)
-		end
+		for mob, d in pairs(espData) do updateESP(mob, d, root) end
 	end
 
 	if state.autoFarm then
@@ -1306,19 +1272,17 @@ RunService.Heartbeat:Connect(function(dt)
 			end
 		end
 	elseif state.autoCollect then
-		-- collect all drops in sequence, not just nearest
 		for _, drop in ipairs(DROP_FOLDER:GetChildren()) do
 			if drop:IsA("Model") then
 				local x, y, z = drop:FindFirstChild("x"), drop:FindFirstChild("y"), drop:FindFirstChild("z")
 				if x and y and z then
 					root.CFrame = CFrame.new(Vector3.new(x.Value, y.Value + 3, z.Value))
-					break -- move one per frame, loop continues next tick
+					break
 				end
 			end
 		end
 	end
 
-	-- Auto serverhop: count how long drops folder has been empty
 	if state.autoServerhop then
 		local hasDrops = #DROP_FOLDER:GetChildren() > 0
 		if hasDrops then
