@@ -29,6 +29,7 @@ local TEXT_SECTION = Color3.fromRGB(80,  84,  105)
 
 local ESP_TEXT_COLOR = Color3.fromRGB(235, 235, 245)
 local ESP_DIST_COLOR = Color3.fromRGB(130, 180, 255)
+local ESP_HP_COLOR   = Color3.fromRGB(255, 200, 80)   -- colour for health text
 local ESP_TEXT_SIZE  = 13
 local ESP_BOX_THICK  = 1
 
@@ -53,7 +54,6 @@ local state = {
 }
 
 -- Registry for UI refresh callbacks — populated as GUI is built
--- refreshAllUI() is called after autoload so visuals match loaded state
 local uiRefreshCallbacks = {}
 local function registerRefresh(fn) table.insert(uiRefreshCallbacks, fn) end
 local function refreshAllUI()
@@ -131,15 +131,18 @@ end
 local function addESP(mob)
 	if espData[mob] then return end
 	if not mob:IsA("Model") then return end
+
 	local hbOutline = Drawing.new("Square")
 	hbOutline.Visible      = false
 	hbOutline.Color        = Color3.fromRGB(0, 0, 0)
 	hbOutline.Filled       = true
 	hbOutline.Transparency = 0.5
+
 	local hbFill = Drawing.new("Square")
 	hbFill.Visible = false
 	hbFill.Filled  = true
 	hbFill.Color   = Color3.fromRGB(48, 255, 106)
+
 	local nameText = Drawing.new("Text")
 	nameText.Visible      = false
 	nameText.Center       = true
@@ -148,6 +151,7 @@ local function addESP(mob)
 	nameText.Size         = ESP_TEXT_SIZE
 	nameText.Font         = 2
 	nameText.Color        = ESP_TEXT_COLOR
+
 	local distText = Drawing.new("Text")
 	distText.Visible      = false
 	distText.Center       = true
@@ -156,12 +160,24 @@ local function addESP(mob)
 	distText.Size         = ESP_TEXT_SIZE - 2
 	distText.Font         = 2
 	distText.Color        = ESP_DIST_COLOR
+
+	-- NEW: health text (e.g. "4500/4500")
+	local hpText = Drawing.new("Text")
+	hpText.Visible      = false
+	hpText.Center       = true
+	hpText.Outline      = true
+	hpText.OutlineColor = Color3.fromRGB(0, 0, 0)
+	hpText.Size         = ESP_TEXT_SIZE - 2
+	hpText.Font         = 2
+	hpText.Color        = ESP_HP_COLOR
+
 	espData[mob] = {
 		box       = makeCornerBox(Color3.fromRGB(48, 255, 106)),
 		hbOutline = hbOutline,
 		hbFill    = hbFill,
 		nameText  = nameText,
 		distText  = distText,
+		hpText    = hpText,   -- NEW
 	}
 end
 
@@ -169,15 +185,21 @@ local function removeESP(mob)
 	local d = espData[mob]
 	if not d then return end
 	for _, ln in pairs(d.box) do ln:Remove() end
-	d.hbOutline:Remove(); d.hbFill:Remove()
-	d.nameText:Remove();  d.distText:Remove()
+	d.hbOutline:Remove()
+	d.hbFill:Remove()
+	d.nameText:Remove()
+	d.distText:Remove()
+	d.hpText:Remove()   -- NEW
 	espData[mob] = nil
 end
 
 local function hideESP(d)
 	for _, ln in pairs(d.box) do ln.Visible = false end
-	d.hbOutline.Visible = false; d.hbFill.Visible  = false
-	d.nameText.Visible  = false; d.distText.Visible = false
+	d.hbOutline.Visible = false
+	d.hbFill.Visible    = false
+	d.nameText.Visible  = false
+	d.distText.Visible  = false
+	d.hpText.Visible    = false   -- NEW
 end
 
 local function updateCornerBox(box, bPos, bSize, color)
@@ -196,41 +218,69 @@ end
 local function updateESP(mob, d, playerRoot)
 	local mobRoot = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
 	if not mobRoot then hideESP(d); return end
+
 	local cf   = mobRoot.CFrame
 	local size = mob:GetExtentsSize()
 	local topScreen,    topVis    = Camera:WorldToViewportPoint(cf.Position + Vector3.new(0,  size.Y / 2, 0))
 	local bottomScreen, bottomVis = Camera:WorldToViewportPoint(cf.Position + Vector3.new(0, -size.Y / 2, 0))
 	if not topVis or not bottomVis or topScreen.Z <= 0 then hideESP(d); return end
+
 	local screenH = bottomScreen.Y - topScreen.Y
 	if screenH <= 2 then hideESP(d); return end
+
 	local screenW = screenH * 0.65
 	local bPos    = Vector2.new(topScreen.X - screenW / 2, topScreen.Y)
 	local bSize   = Vector2.new(screenW, screenH)
 	local dist    = math.floor((playerRoot.Position - mobRoot.Position).Magnitude)
 	if dist > state.espMaxDist then hideESP(d); return end
+
 	local boxColor
 	if dist < 30     then boxColor = Color3.fromRGB(48,  255, 106)
 	elseif dist < 80 then boxColor = Color3.fromRGB(255, 220, 50)
 	else                  boxColor = Color3.fromRGB(239, 79,  29)
 	end
 	updateCornerBox(d.box, bPos, bSize, boxColor)
-	local hum   = mob:FindFirstChildWhichIsA("Humanoid")
-	local ratio = hum and math.clamp(hum.Health / hum.MaxHealth, 0, 1) or 1
-	local barW  = math.max(3, screenW * 0.08)
-	local barH  = screenH
-	d.hbOutline.Size     = Vector2.new(barW, barH)
-	d.hbOutline.Position = Vector2.new(bPos.X - barW - 2, bPos.Y)
+
+	-- ── Health bar (FIXED) ────────────────────────────────────────
+	local hum    = mob:FindFirstChildWhichIsA("Humanoid")
+	-- Read live values every frame so the bar actually moves
+	local curHP  = hum and hum.Health    or 0
+	local maxHP  = hum and hum.MaxHealth or 1
+	if maxHP <= 0 then maxHP = 1 end
+	local ratio  = math.clamp(curHP / maxHP, 0, 1)
+
+	local barW = math.max(4, screenW * 0.10)
+	local barH = screenH
+
+	-- Outline (dark background behind the bar)
+	d.hbOutline.Size     = Vector2.new(barW,     barH)
+	d.hbOutline.Position = Vector2.new(bPos.X - barW - 3, bPos.Y)
 	d.hbOutline.Visible  = true
+
+	-- Fill: grows from the BOTTOM up; position offsets accordingly
+	local fillH = math.max(1, (barH - 2) * ratio)
 	d.hbFill.Color    = healthColor(ratio)
-	d.hbFill.Size     = Vector2.new(barW - 2, math.max(1, (barH - 2) * ratio))
-	d.hbFill.Position = Vector2.new(bPos.X - barW - 1, bPos.Y + 1 + (barH - 2) * (1 - ratio))
+	d.hbFill.Size     = Vector2.new(barW - 2, fillH)
+	-- Top of the fill = bottom of the outline minus fillH
+	d.hbFill.Position = Vector2.new(bPos.X - barW - 2, bPos.Y + 1 + (barH - 2) - fillH)
 	d.hbFill.Visible  = true
+
+	-- ── Name label ───────────────────────────────────────────────
 	d.nameText.Text     = mob.Name
 	d.nameText.Position = Vector2.new(bPos.X + screenW / 2, bPos.Y - ESP_TEXT_SIZE - 2)
 	d.nameText.Visible  = true
+
+	-- ── Distance label ───────────────────────────────────────────
 	d.distText.Text     = dist .. " studs"
 	d.distText.Position = Vector2.new(bPos.X + screenW / 2, bPos.Y + screenH + 2)
 	d.distText.Visible  = true
+
+	-- ── Health text (NEW: "current/max") ─────────────────────────
+	local hpStr = math.floor(curHP) .. "/" .. math.floor(maxHP)
+	d.hpText.Text     = hpStr
+	-- Sits just below the distance label
+	d.hpText.Position = Vector2.new(bPos.X + screenW / 2, bPos.Y + screenH + 2 + (ESP_TEXT_SIZE - 1))
+	d.hpText.Visible  = true
 end
 
 MOB_FOLDER.ChildAdded:Connect(function(mob)
@@ -294,7 +344,7 @@ local CONFIG_KEYS = {
 }
 
 local function ensureFolder()
-	local ok, err = pcall(function()
+	local ok = pcall(function()
 		if not isfolder(CONFIG_FOLDER) then makefolder(CONFIG_FOLDER) end
 	end)
 	return ok
@@ -390,9 +440,9 @@ local function listConfigs()
 end
 
 -- ============================================================
--- STATUS BAR (forward-declared so doServerhop can use it)
+-- STATUS BAR
 -- ============================================================
-local statusLabel  -- assigned when GUI is built; stub used until then
+local statusLabel
 local function setStatus(msg)
 	if statusLabel then
 		statusLabel.Text = msg
@@ -403,17 +453,16 @@ local function setStatus(msg)
 end
 
 -- ============================================================
--- SERVERHOP  (skips full servers, retries on failure)
+-- SERVERHOP
 -- ============================================================
 local isHopping = false
 local MAX_HOP_ATTEMPTS = 5
-local HOP_RETRY_DELAY  = 4   -- seconds between retry attempts
+local HOP_RETRY_DELAY  = 4
 
 local function doServerhop()
 	if isHopping then return end
 	isHopping = true
 
-	-- Re-queue this script to run after teleport so autoload fires again
 	pcall(function()
 		if queue_on_teleport then
 			local src
@@ -436,14 +485,11 @@ local function doServerhop()
 				local currentJobId = game.JobId
 				local maxPlayers   = Players.MaxPlayers
 
-				-- Fetch server list with playing counts
 				local response = game:HttpGetAsync(
 					"https://games.roblox.com/v1/games/" .. game.PlaceId ..
 					"/servers/Public?sortOrder=Asc&limit=100"
 				)
 
-				-- FIX: robust parsing — grab each id then lazily scan forward for
-				-- the playing count before the closing brace, handling nested fields.
 				local servers = {}
 				for jobId, rest in response:gmatch('"id":"([^"]+)"(.-)%}') do
 					if jobId ~= currentJobId then
@@ -456,7 +502,6 @@ local function doServerhop()
 				end
 
 				if #servers == 0 then
-					-- All servers full or only one server — schedule a retry
 					if attempt < MAX_HOP_ATTEMPTS then
 						setStatus("All servers full, retrying in " .. HOP_RETRY_DELAY .. "s...")
 						task.wait(HOP_RETRY_DELAY)
@@ -474,7 +519,6 @@ local function doServerhop()
 			end)
 
 			if not ok then
-				-- HTTP / teleport error: retry or fall back to blind teleport
 				if attempt < MAX_HOP_ATTEMPTS then
 					setStatus("Hop error, retrying in " .. HOP_RETRY_DELAY .. "s...")
 					task.wait(HOP_RETRY_DELAY)
@@ -597,7 +641,6 @@ statusDot.BorderSizePixel  = 0
 statusDot.Parent           = statusBar
 Instance.new("UICorner", statusDot).CornerRadius = UDim.new(1, 0)
 
--- Assign the real statusLabel now that the GUI element exists
 statusLabel = Instance.new("TextLabel")
 statusLabel.Size               = UDim2.new(1, -28, 1, 0)
 statusLabel.Position           = UDim2.new(0, 24, 0, 0)
@@ -889,8 +932,6 @@ local function makeMobList()
 		table.insert(mobButtons, anyBtn)
 		for _, mob in ipairs(MOB_FOLDER:GetChildren()) do
 			if mob:IsA("Model") then
-				-- Strip trailing spaces+numbers to get the group name
-				-- e.g. "Paladin 3" → "Paladin", "BossGhost" → "BossGhost"
 				local groupName = getMobGroupName(mob.Name)
 				if not seen[groupName] then
 					seen[groupName] = true
@@ -1336,16 +1377,11 @@ RunService.Heartbeat:Connect(function(dt)
 		end
 	end
 
-	-- FIX: Auto Serverhop now only counts CursedFinger drops, so non-target
-	-- drops sitting in the folder will no longer block the server hop.
 	if state.autoServerhop then
 		local curseCount = 0
 		for _, drop in ipairs(DROP_FOLDER:GetChildren()) do
-			if drop.Name == "CursedFinger" then
-				curseCount += 1
-			end
+			if drop.Name == "CursedFinger" then curseCount += 1 end
 		end
-
 		if curseCount > 0 then
 			dropsEmptyTimer = 0
 			setStatus("Drops: " .. curseCount .. " remaining")
