@@ -276,7 +276,7 @@ DROP_FOLDER.ChildAdded:Connect(function(drop)
 	if x and y and z then
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart")
-		if root then root.CFrame = CFrame.new(Vector3.new(x.Value, y.Value + 3, z.Value)) end
+		if root then root.CFrame = CFrame.new(Vector3.new(x.Value, y.Value + 1, z.Value)) end
 	end
 end)
 
