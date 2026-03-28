@@ -37,20 +37,21 @@ local ESP_BOX_THICK  = 1
 -- STATE
 -- ============================================================
 local state = {
-	guiVisible    = true,
-	mobESP        = false,
-	autoFarm      = false,
-	autoCollect   = false,
-	noclip        = false,
-	speedHack     = false,
-	flyHack       = false,
-	selectedMob   = nil,
-	farmDistance  = 5,
-	flySpeed      = 60,
-	attackRate    = 0.3,
-	espMaxDist    = 300,
-	autoServerhop = false,
-	noStun        = false,
+	guiVisible      = true,
+	mobESP          = false,
+	autoFarm        = false,
+	autoCollect     = false,
+	noclip          = false,
+	speedHack       = false,
+	flyHack         = false,
+	selectedMob     = nil,
+	farmDistance    = 5,
+	flySpeed        = 60,
+	attackRate      = 0.3,
+	espMaxDist      = 300,
+	autoServerhop   = false,
+	noStun          = false,
+	infiniteStamina = false,  -- NEW
 }
 
 local uiRefreshCallbacks = {}
@@ -349,6 +350,7 @@ local CONFIG_KEYS = {
 	"speedHack", "flyHack", "selectedMob",
 	"farmDistance", "flySpeed", "attackRate",
 	"espMaxDist", "noStun", "autoServerhop",
+	"infiniteStamina",  -- NEW
 }
 
 local function ensureFolder()
@@ -524,8 +526,6 @@ local function doServerhop()
 				local chosen = servers[math.random(1, #servers)]
 				task.wait(0.5)
 
-				-- ── FIX: listen for teleport failure so we know if the server
-				--         was full between listing and actually joining it.
 				local teleportConn
 				teleportConn = TeleportService.TeleportInitFailed:Connect(function(plr, result, _errMsg)
 					if plr ~= player then return end
@@ -533,7 +533,6 @@ local function doServerhop()
 					setStatus("Teleport failed (" .. tostring(result) .. "), retrying in " .. HOP_RETRY_DELAY .. "s...")
 					task.wait(HOP_RETRY_DELAY)
 					if attempt < MAX_HOP_ATTEMPTS then
-						-- Reset flag so the recursive tryHop call is not blocked
 						isHopping = false
 						isHopping = true
 						tryHop()
@@ -543,8 +542,6 @@ local function doServerhop()
 					end
 				end)
 
-				-- Safety net: if neither success nor TeleportInitFailed fires within
-				-- 12 seconds, something stalled — reset so the loop can retry.
 				task.delay(12, function()
 					if teleportConn.Connected then
 						teleportConn:Disconnect()
@@ -1071,6 +1068,7 @@ makeToggle("Noclip", "noclip", function(on)
 		end
 	end
 end)
+makeToggle("Infinite Stamina", "infiniteStamina", nil)  -- NEW
 makeSlider("Fly Speed", 10, 1000, 60, "flySpeed")
 
 makeSection("Config")
@@ -1367,6 +1365,27 @@ RunService.Heartbeat:Connect(function(dt)
 			root.AssemblyLinearVelocity = Vector3.zero
 		end
 	end
+
+	-- ── INFINITE STAMINA ──────────────────────────────────────
+	if state.infiniteStamina then
+		local data = player:FindFirstChild("Data")
+		if data then
+			local stamina    = data:FindFirstChild("Stamina")
+			local maxStamina = data:FindFirstChild("MaxStamina")
+			if stamina and maxStamina then
+				stamina.Value = maxStamina.Value
+			end
+		end
+		local status = player:FindFirstChild("Status")
+		if status then
+			local mountStamina    = status:FindFirstChild("MountStamina")
+			local maxMountStamina = status:FindFirstChild("MaxMountStamina")
+			if mountStamina and maxMountStamina then
+				mountStamina.Value = maxMountStamina.Value
+			end
+		end
+	end
+	-- ─────────────────────────────────────────────────────────
 
 	if not state.flyHack then
 		humanoid.WalkSpeed = state.speedHack and HACK_SPEED or DEFAULT_SPEED
