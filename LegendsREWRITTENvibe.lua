@@ -14,12 +14,8 @@ local Camera      = workspace.CurrentCamera
 -- ============================================================
 -- CONSTANTS
 -- ============================================================
-local DEFAULT_SPEED = 16
+local DEFAULT_SPEED = 70
 local HACK_SPEED    = 120
-
--- UI dimensions — wider panel, two columns side by side
-local UI_WIDTH  = 500
-local UI_HEIGHT = 540
 
 local BG_DEEP      = Color3.fromRGB(10,  10,  14)
 local BG_PANEL     = Color3.fromRGB(16,  16,  22)
@@ -134,15 +130,18 @@ end
 local function addESP(mob)
 	if espData[mob] then return end
 	if not mob:IsA("Model") then return end
+
 	local hbOutline = Drawing.new("Square")
 	hbOutline.Visible      = false
 	hbOutline.Color        = Color3.fromRGB(0, 0, 0)
 	hbOutline.Filled       = true
 	hbOutline.Transparency = 0.5
+
 	local hbFill = Drawing.new("Square")
 	hbFill.Visible = false
 	hbFill.Filled  = true
 	hbFill.Color   = Color3.fromRGB(48, 255, 106)
+
 	local nameText = Drawing.new("Text")
 	nameText.Visible      = false
 	nameText.Center       = true
@@ -151,6 +150,7 @@ local function addESP(mob)
 	nameText.Size         = ESP_TEXT_SIZE
 	nameText.Font         = 2
 	nameText.Color        = ESP_TEXT_COLOR
+
 	local distText = Drawing.new("Text")
 	distText.Visible      = false
 	distText.Center       = true
@@ -159,6 +159,7 @@ local function addESP(mob)
 	distText.Size         = ESP_TEXT_SIZE - 2
 	distText.Font         = 2
 	distText.Color        = ESP_DIST_COLOR
+
 	local hpText = Drawing.new("Text")
 	hpText.Visible      = false
 	hpText.Center       = true
@@ -167,6 +168,7 @@ local function addESP(mob)
 	hpText.Size         = ESP_TEXT_SIZE - 2
 	hpText.Font         = 2
 	hpText.Color        = ESP_HP_COLOR
+
 	espData[mob] = {
 		box       = makeCornerBox(Color3.fromRGB(48, 255, 106)),
 		hbOutline = hbOutline,
@@ -217,8 +219,10 @@ end
 local function getMobHealth(mob)
 	local hpVal  = mob:FindFirstChild("Health")
 	local maxVal = mob:FindFirstChild("MaxHealth")
+
 	local curHP = hpVal  and (type(hpVal.Value)  == "number") and hpVal.Value  or nil
 	local maxHP = maxVal and (type(maxVal.Value) == "number") and maxVal.Value or nil
+
 	if curHP == nil or maxHP == nil then
 		local hum = mob:FindFirstChildWhichIsA("Humanoid")
 		if hum then
@@ -226,6 +230,7 @@ local function getMobHealth(mob)
 			if maxHP == nil then maxHP = hum.MaxHealth end
 		end
 	end
+
 	curHP = curHP or 0
 	maxHP = (maxHP and maxHP > 0) and maxHP or 1
 	return curHP, maxHP
@@ -234,42 +239,53 @@ end
 local function updateESP(mob, d, playerRoot)
 	local mobRoot = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
 	if not mobRoot then hideESP(d); return end
+
 	local cf   = mobRoot.CFrame
 	local size = mob:GetExtentsSize()
 	local topScreen,    topVis    = Camera:WorldToViewportPoint(cf.Position + Vector3.new(0,  size.Y / 2, 0))
 	local bottomScreen, bottomVis = Camera:WorldToViewportPoint(cf.Position + Vector3.new(0, -size.Y / 2, 0))
 	if not topVis or not bottomVis or topScreen.Z <= 0 then hideESP(d); return end
+
 	local screenH = bottomScreen.Y - topScreen.Y
 	if screenH <= 2 then hideESP(d); return end
+
 	local screenW = screenH * 0.65
 	local bPos    = Vector2.new(topScreen.X - screenW / 2, topScreen.Y)
 	local bSize   = Vector2.new(screenW, screenH)
 	local dist    = math.floor((playerRoot.Position - mobRoot.Position).Magnitude)
 	if dist > state.espMaxDist then hideESP(d); return end
+
 	local boxColor
 	if dist < 30     then boxColor = Color3.fromRGB(48,  255, 106)
 	elseif dist < 80 then boxColor = Color3.fromRGB(255, 220, 50)
 	else                  boxColor = Color3.fromRGB(239, 79,  29)
 	end
 	updateCornerBox(d.box, bPos, bSize, boxColor)
+
 	local curHP, maxHP = getMobHealth(mob)
 	local ratio = math.clamp(curHP / maxHP, 0, 1)
+
 	local barW = math.max(4, screenW * 0.10)
 	local barH = screenH
+
 	d.hbOutline.Size     = Vector2.new(barW,     barH)
 	d.hbOutline.Position = Vector2.new(bPos.X - barW - 3, bPos.Y)
 	d.hbOutline.Visible  = true
+
 	local fillH = math.max(1, (barH - 2) * ratio)
 	d.hbFill.Color    = healthColor(ratio)
 	d.hbFill.Size     = Vector2.new(barW - 2, fillH)
 	d.hbFill.Position = Vector2.new(bPos.X - barW - 2, bPos.Y + 1 + (barH - 2) - fillH)
 	d.hbFill.Visible  = true
+
 	d.nameText.Text     = mob.Name
 	d.nameText.Position = Vector2.new(bPos.X + screenW / 2, bPos.Y - ESP_TEXT_SIZE - 2)
 	d.nameText.Visible  = true
+
 	d.distText.Text     = dist .. " studs"
 	d.distText.Position = Vector2.new(bPos.X + screenW / 2, bPos.Y + screenH + 2)
 	d.distText.Visible  = true
+
 	d.hpText.Text     = math.floor(curHP) .. "/" .. math.floor(maxHP)
 	d.hpText.Position = Vector2.new(bPos.X + screenW / 2, bPos.Y + screenH + 2 + (ESP_TEXT_SIZE - 1))
 	d.hpText.Visible  = true
@@ -432,7 +448,7 @@ local function listConfigs()
 end
 
 -- ============================================================
--- STATUS BAR (declared early so setStatus works during build)
+-- STATUS BAR
 -- ============================================================
 local statusLabel
 local function setStatus(msg)
@@ -508,7 +524,8 @@ local function doServerhop()
 				local chosen = servers[math.random(1, #servers)]
 				task.wait(0.5)
 
-				-- Listen for teleport failure (server became full between listing and joining)
+				-- ── FIX: listen for teleport failure so we know if the server
+				--         was full between listing and actually joining it.
 				local teleportConn
 				teleportConn = TeleportService.TeleportInitFailed:Connect(function(plr, result, _errMsg)
 					if plr ~= player then return end
@@ -516,6 +533,7 @@ local function doServerhop()
 					setStatus("Teleport failed (" .. tostring(result) .. "), retrying in " .. HOP_RETRY_DELAY .. "s...")
 					task.wait(HOP_RETRY_DELAY)
 					if attempt < MAX_HOP_ATTEMPTS then
+						-- Reset flag so the recursive tryHop call is not blocked
 						isHopping = false
 						isHopping = true
 						tryHop()
@@ -525,7 +543,8 @@ local function doServerhop()
 					end
 				end)
 
-				-- Safety net: reset if neither success nor failure fires within 12s
+				-- Safety net: if neither success nor TeleportInitFailed fires within
+				-- 12 seconds, something stalled — reset so the loop can retry.
 				task.delay(12, function()
 					if teleportConn.Connected then
 						teleportConn:Disconnect()
@@ -556,7 +575,7 @@ local function doServerhop()
 end
 
 -- ============================================================
--- GUI SETUP  — wider two-column layout
+-- GUI SETUP
 -- ============================================================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name           = "SharmoodieHub"
@@ -566,8 +585,8 @@ screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.Parent         = player.PlayerGui
 
 local shadow = Instance.new("Frame")
-shadow.Size             = UDim2.new(0, UI_WIDTH + 4, 0, UI_HEIGHT + 4)
-shadow.Position         = UDim2.new(0, 8, 0.5, -(UI_HEIGHT / 2) - 2)
+shadow.Size             = UDim2.new(0, 268, 0, 580)
+shadow.Position         = UDim2.new(0, 8, 0.5, -290)
 shadow.BackgroundColor3 = BG_DEEP
 shadow.BorderSizePixel  = 0
 shadow.Active           = true
@@ -583,7 +602,6 @@ mainFrame.BorderSizePixel  = 0
 mainFrame.Parent           = shadow
 Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 11)
 
--- ── Top bar ──────────────────────────────────────────────────
 local topBar = Instance.new("Frame")
 topBar.Size             = UDim2.new(1, 0, 0, 48)
 topBar.BackgroundColor3 = BG_CARD
@@ -591,12 +609,12 @@ topBar.BorderSizePixel  = 0
 topBar.Parent           = mainFrame
 Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 11)
 
-local topBarFill = Instance.new("Frame")  -- square off bottom-rounded corners on topBar
-topBarFill.Size             = UDim2.new(1, 0, 0, 12)
-topBarFill.Position         = UDim2.new(0, 0, 1, -12)
-topBarFill.BackgroundColor3 = BG_CARD
-topBarFill.BorderSizePixel  = 0
-topBarFill.Parent           = topBar
+local topBarSquare = Instance.new("Frame")
+topBarSquare.Size             = UDim2.new(1, 0, 0, 12)
+topBarSquare.Position         = UDim2.new(0, 0, 1, -12)
+topBarSquare.BackgroundColor3 = BG_CARD
+topBarSquare.BorderSizePixel  = 0
+topBarSquare.Parent           = topBar
 
 local accentDot = Instance.new("Frame")
 accentDot.Size             = UDim2.new(0, 8, 0, 8)
@@ -638,7 +656,6 @@ sep.BackgroundColor3 = BORDER_COLOR
 sep.BorderSizePixel  = 0
 sep.Parent           = mainFrame
 
--- ── Status bar ───────────────────────────────────────────────
 local statusBar = Instance.new("Frame")
 statusBar.Size             = UDim2.new(1, 0, 0, 28)
 statusBar.Position         = UDim2.new(0, 0, 1, -28)
@@ -647,12 +664,12 @@ statusBar.BorderSizePixel  = 0
 statusBar.Parent           = mainFrame
 Instance.new("UICorner", statusBar).CornerRadius = UDim.new(0, 11)
 
-local statusBarFill = Instance.new("Frame")
-statusBarFill.Size             = UDim2.new(1, 0, 0, 12)
-statusBarFill.Position         = UDim2.new(0, 0, 0, 0)
-statusBarFill.BackgroundColor3 = BG_CARD
-statusBarFill.BorderSizePixel  = 0
-statusBarFill.Parent           = statusBar
+local statusSquare = Instance.new("Frame")
+statusSquare.Size             = UDim2.new(1, 0, 0, 12)
+statusSquare.Position         = UDim2.new(0, 0, 0, 0)
+statusSquare.BackgroundColor3 = BG_CARD
+statusSquare.BorderSizePixel  = 0
+statusSquare.Parent           = statusBar
 
 local statusDot = Instance.new("Frame")
 statusDot.Size             = UDim2.new(0, 6, 0, 6)
@@ -674,54 +691,36 @@ statusLabel.Text               = "Sharmoodie"
 statusLabel.TextXAlignment     = Enum.TextXAlignment.Left
 statusLabel.Parent             = statusBar
 
--- ── Vertical divider between columns ─────────────────────────
-local BODY_TOP    = 54   -- below topbar + sep
-local BODY_BOTTOM = 28   -- statusBar height
-local HALF_W      = math.floor(UI_WIDTH / 2)
-local COL_PAD     = 8
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Size                = UDim2.new(1, -8, 1, -84)
+scrollFrame.Position            = UDim2.new(0, 4, 0, 54)
+scrollFrame.BackgroundTransparency = 1
+scrollFrame.BorderSizePixel     = 0
+scrollFrame.ScrollBarThickness  = 2
+scrollFrame.ScrollBarImageColor3 = ACCENT_COLOR
+scrollFrame.CanvasSize          = UDim2.new(0, 0, 0, 0)
+scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+scrollFrame.Parent              = mainFrame
 
-local colDivider = Instance.new("Frame")
-colDivider.Size             = UDim2.new(0, 1, 1, -(BODY_TOP + BODY_BOTTOM + 8))
-colDivider.Position         = UDim2.new(0.5, 0, 0, BODY_TOP + 4)
-colDivider.BackgroundColor3 = BORDER_COLOR
-colDivider.BorderSizePixel  = 0
-colDivider.Parent           = mainFrame
+local listLayout = Instance.new("UIListLayout")
+listLayout.Padding = UDim.new(0, 4)
+listLayout.Parent  = scrollFrame
 
--- ── Column scroll frames ──────────────────────────────────────
-local function makeColScroll(xOffset)
-	local sf = Instance.new("ScrollingFrame")
-	sf.Size                = UDim2.new(0, HALF_W, 1, -(BODY_TOP + BODY_BOTTOM + 4))
-	sf.Position            = UDim2.new(0, xOffset, 0, BODY_TOP)
-	sf.BackgroundTransparency = 1
-	sf.BorderSizePixel     = 0
-	sf.ScrollBarThickness  = 2
-	sf.ScrollBarImageColor3 = ACCENT_COLOR
-	sf.CanvasSize          = UDim2.new(0, 0, 0, 0)
-	sf.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	sf.Parent              = mainFrame
-	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0, 4)
-	layout.Parent  = sf
-	local pad = Instance.new("UIPadding")
-	pad.PaddingLeft   = UDim.new(0, COL_PAD)
-	pad.PaddingRight  = UDim.new(0, COL_PAD)
-	pad.PaddingTop    = UDim.new(0, 6)
-	pad.PaddingBottom = UDim.new(0, 6)
-	pad.Parent        = sf
-	return sf
-end
-
-local leftScroll  = makeColScroll(0)
-local rightScroll = makeColScroll(HALF_W)
+local listPadding = Instance.new("UIPadding")
+listPadding.PaddingLeft   = UDim.new(0, 4)
+listPadding.PaddingRight  = UDim.new(0, 4)
+listPadding.PaddingTop    = UDim.new(0, 6)
+listPadding.PaddingBottom = UDim.new(0, 6)
+listPadding.Parent        = scrollFrame
 
 -- ============================================================
--- WIDGET HELPERS  (each takes an explicit parent column)
+-- GUI HELPERS
 -- ============================================================
-local function makeSection(text, parent)
+local function makeSection(text)
 	local row = Instance.new("Frame")
 	row.Size             = UDim2.new(1, 0, 0, 28)
 	row.BackgroundTransparency = 1
-	row.Parent           = parent
+	row.Parent           = scrollFrame
 	local lline = Instance.new("Frame")
 	lline.Size             = UDim2.new(0, 18, 0, 1)
 	lline.Position         = UDim2.new(0, 0, 0.5, 0)
@@ -739,14 +738,15 @@ local function makeSection(text, parent)
 	lbl.Text               = text:upper()
 	lbl.TextXAlignment     = Enum.TextXAlignment.Left
 	lbl.Parent             = row
+	return row
 end
 
-local function makeToggle(label, stateKey, onToggle, keySuffix, parent)
+local function makeToggle(label, stateKey, onToggle, keySuffix)
 	local card = Instance.new("Frame")
 	card.Size             = UDim2.new(1, 0, 0, 40)
 	card.BackgroundColor3 = BG_CARD
 	card.BorderSizePixel  = 0
-	card.Parent           = parent
+	card.Parent           = scrollFrame
 	Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
 
 	local stripe = Instance.new("Frame")
@@ -813,12 +813,12 @@ local function makeToggle(label, stateKey, onToggle, keySuffix, parent)
 	return { refresh = refresh }
 end
 
-local function makeSlider(labelText, minVal, maxVal, defaultVal, stateKey, onChange, parent)
+local function makeSlider(labelText, minVal, maxVal, defaultVal, stateKey, onChange)
 	local card = Instance.new("Frame")
 	card.Size             = UDim2.new(1, 0, 0, 56)
 	card.BackgroundColor3 = BG_CARD
 	card.BorderSizePixel  = 0
-	card.Parent           = parent
+	card.Parent           = scrollFrame
 	Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
 
 	local lbl = Instance.new("TextLabel")
@@ -900,228 +900,118 @@ local function makeSlider(labelText, minVal, maxVal, defaultVal, stateKey, onCha
 	end)
 end
 
--- ============================================================
--- MOB TARGET DROPDOWN
--- The floating list is parented to mainFrame (not the scroll
--- column) so it overlays everything and is not clipped.
--- ============================================================
-local dropdownOpen      = false
-local ddListFrame       = nil
-local ddSelectionLabel  = nil   -- updated when a mob is chosen
-
-local function makeMobDropdown(parent)
-	-- Button card ────────────────────────────────────────────
+local function makeMobList()
 	local card = Instance.new("Frame")
-	card.Size             = UDim2.new(1, 0, 0, 44)
+	card.Size             = UDim2.new(1, 0, 0, 136)
 	card.BackgroundColor3 = BG_CARD
 	card.BorderSizePixel  = 0
-	card.Parent           = parent
+	card.Parent           = scrollFrame
 	Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
 
-	local headerLbl = Instance.new("TextLabel")
-	headerLbl.Size               = UDim2.new(1, -12, 0, 14)
-	headerLbl.Position           = UDim2.new(0, 12, 0, 5)
-	headerLbl.BackgroundTransparency = 1
-	headerLbl.TextColor3         = TEXT_SECTION
-	headerLbl.TextScaled         = false
-	headerLbl.TextSize           = 10
-	headerLbl.Font               = Enum.Font.GothamBold
-	headerLbl.Text               = "TARGET MOB"
-	headerLbl.TextXAlignment     = Enum.TextXAlignment.Left
-	headerLbl.Parent             = card
+	local listTitle = Instance.new("TextLabel")
+	listTitle.Size               = UDim2.new(1, -12, 0, 22)
+	listTitle.Position           = UDim2.new(0, 12, 0, 6)
+	listTitle.BackgroundTransparency = 1
+	listTitle.TextColor3         = TEXT_MUTED
+	listTitle.TextScaled         = false
+	listTitle.TextSize           = 11
+	listTitle.Font               = Enum.Font.GothamBold
+	listTitle.Text               = "TARGET MOB"
+	listTitle.TextXAlignment     = Enum.TextXAlignment.Left
+	listTitle.Parent             = card
 
-	ddSelectionLabel = Instance.new("TextLabel")
-	ddSelectionLabel.Size               = UDim2.new(1, -38, 0, 18)
-	ddSelectionLabel.Position           = UDim2.new(0, 12, 0, 21)
-	ddSelectionLabel.BackgroundTransparency = 1
-	ddSelectionLabel.TextColor3         = TEXT_PRIMARY
-	ddSelectionLabel.TextScaled         = false
-	ddSelectionLabel.TextSize           = 13
-	ddSelectionLabel.Font               = Enum.Font.Gotham
-	ddSelectionLabel.Text               = "⚡  Any / Nearest"
-	ddSelectionLabel.TextXAlignment     = Enum.TextXAlignment.Left
-	ddSelectionLabel.Parent             = card
+	local scroll = Instance.new("ScrollingFrame")
+	scroll.Size                = UDim2.new(1, -12, 1, -36)
+	scroll.Position            = UDim2.new(0, 6, 0, 30)
+	scroll.BackgroundTransparency = 1
+	scroll.BorderSizePixel     = 0
+	scroll.ScrollBarThickness  = 2
+	scroll.ScrollBarImageColor3 = ACCENT_COLOR
+	scroll.CanvasSize          = UDim2.new(0, 0, 0, 0)
+	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	scroll.Parent              = card
+	Instance.new("UIListLayout", scroll).Padding = UDim.new(0, 3)
 
-	local chevron = Instance.new("TextLabel")
-	chevron.Size               = UDim2.new(0, 20, 0, 20)
-	chevron.Position           = UDim2.new(1, -28, 0.5, -10)
-	chevron.BackgroundTransparency = 1
-	chevron.TextColor3         = TEXT_MUTED
-	chevron.TextScaled         = false
-	chevron.TextSize           = 14
-	chevron.Font               = Enum.Font.GothamBold
-	chevron.Text               = "▾"
-	chevron.Parent             = card
+	local mobButtons = {}
+	local seen = {}
 
-	-- Floating list frame ────────────────────────────────────
-	-- Width matches the card inside the column (subtract column padding)
-	local listW = HALF_W - COL_PAD * 2
-
-	ddListFrame = Instance.new("Frame")
-	ddListFrame.Size             = UDim2.new(0, listW, 0, 0)   -- height set dynamically
-	ddListFrame.BackgroundColor3 = BG_ELEMENT
-	ddListFrame.BorderSizePixel  = 0
-	ddListFrame.Visible          = false
-	ddListFrame.ZIndex           = 20
-	ddListFrame.ClipsDescendants = true
-	ddListFrame.Parent           = mainFrame
-	Instance.new("UICorner", ddListFrame).CornerRadius = UDim.new(0, 8)
-
-	local ddStroke = Instance.new("UIStroke")
-	ddStroke.Color     = BORDER_COLOR
-	ddStroke.Thickness = 1
-	ddStroke.Parent    = ddListFrame
-
-	local ddScroll = Instance.new("ScrollingFrame")
-	ddScroll.Size                = UDim2.new(1, 0, 1, 0)
-	ddScroll.BackgroundTransparency = 1
-	ddScroll.BorderSizePixel     = 0
-	ddScroll.ScrollBarThickness  = 2
-	ddScroll.ScrollBarImageColor3 = ACCENT_COLOR
-	ddScroll.CanvasSize          = UDim2.new(0, 0, 0, 0)
-	ddScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	ddScroll.ZIndex              = 20
-	ddScroll.Parent              = ddListFrame
-
-	local ddLayout = Instance.new("UIListLayout")
-	ddLayout.Padding = UDim.new(0, 2)
-	ddLayout.Parent  = ddScroll
-
-	local ddPad = Instance.new("UIPadding")
-	ddPad.PaddingLeft   = UDim.new(0, 4)
-	ddPad.PaddingRight  = UDim.new(0, 4)
-	ddPad.PaddingTop    = UDim.new(0, 4)
-	ddPad.PaddingBottom = UDim.new(0, 4)
-	ddPad.Parent        = ddScroll
-
-	local itemBtns = {}
-
-	local function closeDropdown()
-		dropdownOpen         = false
-		ddListFrame.Visible  = false
-		chevron.Text         = "▾"
+	local function makeChip(parent, text, isSelected, onClick)
+		local chip = Instance.new("TextButton")
+		chip.Size             = UDim2.new(1, 0, 0, 26)
+		chip.BackgroundColor3 = isSelected and ACCENT_COLOR or BG_ELEMENT
+		chip.TextColor3       = isSelected and BG_DEEP or TEXT_MUTED
+		chip.TextScaled       = false
+		chip.TextSize         = 12
+		chip.Font             = isSelected and Enum.Font.GothamBold or Enum.Font.Gotham
+		chip.Text             = text
+		chip.BorderSizePixel  = 0
+		chip.Parent           = parent
+		Instance.new("UICorner", chip).CornerRadius = UDim.new(0, 6)
+		chip.MouseButton1Click:Connect(onClick)
+		return chip
 	end
 
-	local function selectMob(name)
-		state.selectedMob = name
-		ddSelectionLabel.Text = (name == nil) and "⚡  Any / Nearest" or name
-		closeDropdown()
-		setStatus("Target: " .. (name or "Any"))
-	end
-
-	local function rebuildList()
-		for _, b in ipairs(itemBtns) do b:Destroy() end
-		itemBtns = {}
-
-		local function addItem(displayText, mobName)
-			local selected = state.selectedMob == mobName
-			local item = Instance.new("TextButton")
-			item.Size             = UDim2.new(1, 0, 0, 28)
-			item.BackgroundColor3 = selected and ACCENT_COLOR or BG_CARD
-			item.TextColor3       = selected and BG_DEEP or TEXT_MUTED
-			item.TextScaled       = false
-			item.TextSize         = 12
-			item.Font             = selected and Enum.Font.GothamBold or Enum.Font.Gotham
-			item.Text             = displayText
-			item.BorderSizePixel  = 0
-			item.ZIndex           = 21
-			item.Parent           = ddScroll
-			Instance.new("UICorner", item).CornerRadius = UDim.new(0, 6)
-			item.MouseButton1Click:Connect(function()
-				selectMob(mobName)
-				rebuildList()
-			end)
-			table.insert(itemBtns, item)
-		end
-
-		addItem("⚡  Any / Nearest", nil)
-
-		local seen = {}
+	local function refreshList()
+		for _, b in ipairs(mobButtons) do b:Destroy() end
+		mobButtons = {}; seen = {}
+		local anyBtn = makeChip(scroll, "⚡  Any / Nearest", state.selectedMob == nil, function()
+			state.selectedMob = nil
+			for _, b in ipairs(mobButtons) do
+				b.BackgroundColor3 = BG_ELEMENT; b.TextColor3 = TEXT_MUTED; b.Font = Enum.Font.Gotham
+			end
+			if mobButtons[1] then
+				mobButtons[1].BackgroundColor3 = ACCENT_COLOR
+				mobButtons[1].TextColor3       = BG_DEEP
+				mobButtons[1].Font             = Enum.Font.GothamBold
+			end
+			setStatus("Target: Any")
+		end)
+		table.insert(mobButtons, anyBtn)
 		for _, mob in ipairs(MOB_FOLDER:GetChildren()) do
 			if mob:IsA("Model") then
-				local g = getMobGroupName(mob.Name)
-				if not seen[g] then
-					seen[g] = true
-					addItem(g, g)
+				local groupName = getMobGroupName(mob.Name)
+				if not seen[groupName] then
+					seen[groupName] = true
+					local isSelected = state.selectedMob == groupName
+					local btn = makeChip(scroll, groupName, isSelected, function()
+						state.selectedMob = groupName
+						for _, b in ipairs(mobButtons) do
+							b.BackgroundColor3 = BG_ELEMENT; b.TextColor3 = TEXT_MUTED; b.Font = Enum.Font.Gotham
+						end
+						for _, b in ipairs(mobButtons) do
+							if b.Text == groupName then
+								b.BackgroundColor3 = ACCENT_COLOR; b.TextColor3 = BG_DEEP; b.Font = Enum.Font.GothamBold
+							end
+						end
+						setStatus("Target: " .. groupName)
+					end)
+					table.insert(mobButtons, btn)
 				end
 			end
 		end
-
-		-- Cap visible height at 6 rows (28px each + 2px gap + 8px padding)
-		local visRows = math.min(#itemBtns, 6)
-		local listH   = visRows * 30 + 8
-		ddListFrame.Size = UDim2.new(0, listW, 0, listH)
 	end
 
-	-- Position list below the button card in mainFrame local coords
-	local function positionList()
-		local mfAbs   = mainFrame.AbsolutePosition
-		local cardAbs = card.AbsolutePosition
-		local cardSz  = card.AbsoluteSize
-		local lx = cardAbs.X - mfAbs.X
-		local ly = cardAbs.Y - mfAbs.Y + cardSz.Y + 3
-		ddListFrame.Position = UDim2.new(0, lx, 0, ly)
-	end
-
-	-- Toggle button
-	local toggleBtn = Instance.new("TextButton")
-	toggleBtn.Size             = UDim2.new(1, 0, 1, 0)
-	toggleBtn.BackgroundTransparency = 1
-	toggleBtn.Text             = ""
-	toggleBtn.ZIndex           = 5
-	toggleBtn.Parent           = card
-	toggleBtn.MouseButton1Click:Connect(function()
-		if dropdownOpen then
-			closeDropdown()
-		else
-			positionList()
-			rebuildList()
-			ddListFrame.Visible = true
-			dropdownOpen        = true
-			chevron.Text        = "▴"
-		end
-	end)
-
-	-- Close on any outside click (delay lets item clicks fire first)
-	screenGui.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 and dropdownOpen then
-			task.wait(0.05)
-			closeDropdown()
-		end
-	end)
-
-	-- Auto-refresh list contents when mobs change (only when open)
-	MOB_FOLDER.ChildAdded:Connect(function()
-		task.wait(0.5)
-		if dropdownOpen then rebuildList() end
-	end)
-	MOB_FOLDER.ChildRemoved:Connect(function()
-		task.wait(0.5)
-		if dropdownOpen then rebuildList() end
-	end)
-
-	-- Refresh mob list button (sits in column below the dropdown card)
 	local refreshBtn = Instance.new("TextButton")
-	refreshBtn.Size             = UDim2.new(1, 0, 0, 28)
+	refreshBtn.Size             = UDim2.new(1, 0, 0, 30)
 	refreshBtn.BackgroundColor3 = BG_CARD
 	refreshBtn.TextColor3       = TEXT_MUTED
 	refreshBtn.TextScaled       = false
-	refreshBtn.TextSize         = 11
+	refreshBtn.TextSize         = 12
 	refreshBtn.Font             = Enum.Font.Gotham
 	refreshBtn.Text             = "🔄  Refresh Mob List"
 	refreshBtn.BorderSizePixel  = 0
-	refreshBtn.Parent           = parent
+	refreshBtn.Parent           = scrollFrame
 	Instance.new("UICorner", refreshBtn).CornerRadius = UDim.new(0, 8)
-	refreshBtn.MouseButton1Click:Connect(function()
-		if dropdownOpen then rebuildList() end
-		setStatus("Mob list refreshed")
-	end)
+	refreshBtn.MouseButton1Click:Connect(function() refreshList(); setStatus("Mob list refreshed") end)
+	MOB_FOLDER.ChildAdded:Connect(function()   task.wait(0.5); refreshList() end)
+	MOB_FOLDER.ChildRemoved:Connect(function() task.wait(0.5); refreshList() end)
+	refreshList()
 end
 
 -- ============================================================
--- BUILD GUI — LEFT COLUMN: Combat + Movement
+-- BUILD GUI
 -- ============================================================
-makeSection("Combat", leftScroll)
+makeSection("Combat")
 makeToggle("Mob ESP", "mobESP", function(on)
 	if on then
 		for _, mob in ipairs(MOB_FOLDER:GetChildren()) do
@@ -1130,9 +1020,9 @@ makeToggle("Mob ESP", "mobESP", function(on)
 	else
 		for mob in pairs(espData) do removeESP(mob) end
 	end
-end, nil, leftScroll)
-makeSlider("ESP Distance",      20, 1000, 300, "espMaxDist", nil, leftScroll)
-makeToggle("Auto Farm",         "autoFarm",  nil, nil, leftScroll)
+end)
+makeSlider("ESP Distance",      20,   1000, 300, "espMaxDist")
+makeToggle("Auto Farm",         "autoFarm",  nil)
 makeToggle("No Stun",           "noStun", function(on)
 	local character = player.Character
 	if not character then return end
@@ -1140,39 +1030,16 @@ makeToggle("No Stun",           "noStun", function(on)
 	if not humanoid then return end
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.StrafingNoPhysics, not on)
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.PlatformStanding,  not on)
-end, nil, leftScroll)
+end)
+makeMobList()
+makeSlider("Farm Distance",      2,    30,   5,  "farmDistance")
+makeSlider("Attack Rate (x10)",  1,    20,   3,  nil, function(v) state.attackRate = v / 10 end)
 
--- Mob dropdown + refresh button both land in leftScroll
-makeMobDropdown(leftScroll)
-
-makeSlider("Farm Distance",     2,  30,  5, "farmDistance", nil,                             leftScroll)
-makeSlider("Attack Rate (x10)", 1,  20,  3, nil,            function(v) state.attackRate = v / 10 end, leftScroll)
-
-makeSection("Movement", leftScroll)
-local speedRef = makeToggle("Speed Hack", "speedHack", nil, "F1", leftScroll)
-local flyRef   = makeToggle("Fly Hack",   "flyHack", function(on)
-	if on then enableFly() else disableFly() end
-end, "F2", leftScroll)
-makeToggle("Noclip", "noclip", function(on)
-	if not on then
-		local character = player.Character
-		if character then
-			for _, part in ipairs(character:GetDescendants()) do
-				if part:IsA("BasePart") then part.CanCollide = true end
-			end
-		end
-	end
-end, nil, leftScroll)
-makeSlider("Fly Speed", 10, 1000, 60, "flySpeed", nil, leftScroll)
-
--- ============================================================
--- BUILD GUI — RIGHT COLUMN: Drops + Config
--- ============================================================
-makeSection("Drops", rightScroll)
-makeToggle("Auto Collect",   "autoCollect",   nil, nil, rightScroll)
-makeToggle("Auto Serverhop", "autoServerhop", function(on)
+makeSection("Drops")
+makeToggle("Auto Collect",    "autoCollect",   nil)
+makeToggle("Auto Serverhop",  "autoServerhop", function(on)
 	setStatus("Auto Serverhop: " .. (on and "ON - watching drops" or "OFF"))
-end, nil, rightScroll)
+end)
 
 do
 	local hopBtn = Instance.new("TextButton")
@@ -1184,20 +1051,36 @@ do
 	hopBtn.Font             = Enum.Font.GothamBold
 	hopBtn.Text             = "Serverhop Now"
 	hopBtn.BorderSizePixel  = 0
-	hopBtn.Parent           = rightScroll
+	hopBtn.Parent           = scrollFrame
 	Instance.new("UICorner", hopBtn).CornerRadius = UDim.new(0, 8)
 	hopBtn.MouseButton1Click:Connect(doServerhop)
 end
 
-makeSection("Config", rightScroll)
+makeSection("Movement")
+local speedRef = makeToggle("Speed Hack", "speedHack", nil, "F1")
+local flyRef   = makeToggle("Fly Hack",   "flyHack", function(on)
+	if on then enableFly() else disableFly() end
+end, "F2")
+makeToggle("Noclip", "noclip", function(on)
+	if not on then
+		local character = player.Character
+		if character then
+			for _, part in ipairs(character:GetDescendants()) do
+				if part:IsA("BasePart") then part.CanCollide = true end
+			end
+		end
+	end
+end)
+makeSlider("Fly Speed", 10, 1000, 60, "flySpeed")
+
+makeSection("Config")
 
 do
-	-- Config name input card
 	local inputCard = Instance.new("Frame")
 	inputCard.Size             = UDim2.new(1, 0, 0, 44)
 	inputCard.BackgroundColor3 = BG_CARD
 	inputCard.BorderSizePixel  = 0
-	inputCard.Parent           = rightScroll
+	inputCard.Parent           = scrollFrame
 	Instance.new("UICorner", inputCard).CornerRadius = UDim.new(0, 8)
 
 	local inputLbl = Instance.new("TextLabel")
@@ -1232,11 +1115,10 @@ do
 		currentConfigName = inputBox.Text
 	end)
 
-	-- Save / Load row
 	local btnRow = Instance.new("Frame")
 	btnRow.Size             = UDim2.new(1, 0, 0, 34)
 	btnRow.BackgroundTransparency = 1
-	btnRow.Parent           = rightScroll
+	btnRow.Parent           = scrollFrame
 	local btnLayout = Instance.new("UIListLayout")
 	btnLayout.FillDirection = Enum.FillDirection.Horizontal
 	btnLayout.Padding       = UDim.new(0, 4)
@@ -1284,11 +1166,10 @@ do
 		end
 	end)
 
-	-- Set / Clear autoload row
 	local autoRow = Instance.new("Frame")
 	autoRow.Size             = UDim2.new(1, 0, 0, 34)
 	autoRow.BackgroundTransparency = 1
-	autoRow.Parent           = rightScroll
+	autoRow.Parent           = scrollFrame
 	local autoRowLayout = Instance.new("UIListLayout")
 	autoRowLayout.FillDirection = Enum.FillDirection.Horizontal
 	autoRowLayout.Padding       = UDim.new(0, 4)
@@ -1328,12 +1209,11 @@ do
 		clearAutoload(); setStatus("Autoload cleared")
 	end)
 
-	-- Saved configs list
 	local listCard = Instance.new("Frame")
-	listCard.Size             = UDim2.new(1, 0, 0, 130)
+	listCard.Size             = UDim2.new(1, 0, 0, 100)
 	listCard.BackgroundColor3 = BG_CARD
 	listCard.BorderSizePixel  = 0
-	listCard.Parent           = rightScroll
+	listCard.Parent           = scrollFrame
 	Instance.new("UICorner", listCard).CornerRadius = UDim.new(0, 8)
 
 	local listLbl = Instance.new("TextLabel")
@@ -1366,7 +1246,7 @@ do
 		for _, b in ipairs(configBtns) do b:Destroy() end
 		configBtns = {}
 		local autoName = getAutoload()
-		local names    = listConfigs()
+		local names = listConfigs()
 		if #names == 0 then
 			local empty = Instance.new("TextLabel")
 			empty.Size               = UDim2.new(1, 0, 0, 22)
@@ -1419,7 +1299,7 @@ do
 	refreshCfgBtn.Font             = Enum.Font.Gotham
 	refreshCfgBtn.Text             = "Refresh Config List"
 	refreshCfgBtn.BorderSizePixel  = 0
-	refreshCfgBtn.Parent           = rightScroll
+	refreshCfgBtn.Parent           = scrollFrame
 	Instance.new("UICorner", refreshCfgBtn).CornerRadius = UDim.new(0, 8)
 	refreshCfgBtn.MouseButton1Click:Connect(refreshConfigList)
 
