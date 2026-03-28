@@ -14,7 +14,7 @@ local Camera      = workspace.CurrentCamera
 -- ============================================================
 -- CONSTANTS
 -- ============================================================
-local DEFAULT_SPEED = 16
+local DEFAULT_SPEED = 70
 local HACK_SPEED    = 120
 
 local BG_DEEP      = Color3.fromRGB(10,  10,  14)
