@@ -29,7 +29,7 @@ local TEXT_SECTION = Color3.fromRGB(80,  84,  105)
 
 local ESP_TEXT_COLOR = Color3.fromRGB(235, 235, 245)
 local ESP_DIST_COLOR = Color3.fromRGB(130, 180, 255)
-local ESP_HP_COLOR   = Color3.fromRGB(255, 200, 80)   -- colour for health text
+local ESP_HP_COLOR   = Color3.fromRGB(255, 200, 80)
 local ESP_TEXT_SIZE  = 13
 local ESP_BOX_THICK  = 1
 
@@ -53,7 +53,6 @@ local state = {
 	noStun        = false,
 }
 
--- Registry for UI refresh callbacks — populated as GUI is built
 local uiRefreshCallbacks = {}
 local function registerRefresh(fn) table.insert(uiRefreshCallbacks, fn) end
 local function refreshAllUI()
@@ -161,7 +160,6 @@ local function addESP(mob)
 	distText.Font         = 2
 	distText.Color        = ESP_DIST_COLOR
 
-	-- NEW: health text (e.g. "4500/4500")
 	local hpText = Drawing.new("Text")
 	hpText.Visible      = false
 	hpText.Center       = true
@@ -177,7 +175,7 @@ local function addESP(mob)
 		hbFill    = hbFill,
 		nameText  = nameText,
 		distText  = distText,
-		hpText    = hpText,   -- NEW
+		hpText    = hpText,
 	}
 end
 
@@ -189,7 +187,7 @@ local function removeESP(mob)
 	d.hbFill:Remove()
 	d.nameText:Remove()
 	d.distText:Remove()
-	d.hpText:Remove()   -- NEW
+	d.hpText:Remove()
 	espData[mob] = nil
 end
 
@@ -199,7 +197,7 @@ local function hideESP(d)
 	d.hbFill.Visible    = false
 	d.nameText.Visible  = false
 	d.distText.Visible  = false
-	d.hpText.Visible    = false   -- NEW
+	d.hpText.Visible    = false
 end
 
 local function updateCornerBox(box, bPos, bSize, color)
@@ -213,6 +211,34 @@ local function updateCornerBox(box, bPos, bSize, color)
 	box.BR_H.From = bPos + Vector2.new(bSize.X, bSize.Y); box.BR_H.To = bPos + Vector2.new(bSize.X - cs, bSize.Y)
 	box.BR_V.From = bPos + Vector2.new(bSize.X, bSize.Y); box.BR_V.To = bPos + Vector2.new(bSize.X, bSize.Y - cs)
 	for _, ln in pairs(box) do ln.Color = color; ln.Visible = true end
+end
+
+-- ============================================================
+-- HEALTH READING HELPER
+-- This game stores health as NumberValue children directly on
+-- the mob model: workspace.Mobs[Name].Health / .MaxHealth
+-- Falls back to a Humanoid for any standard NPCs.
+-- ============================================================
+local function getMobHealth(mob)
+	-- Primary: direct NumberValue children named "Health" / "MaxHealth"
+	local hpVal  = mob:FindFirstChild("Health")
+	local maxVal = mob:FindFirstChild("MaxHealth")
+
+	local curHP = hpVal  and (type(hpVal.Value)  == "number") and hpVal.Value  or nil
+	local maxHP = maxVal and (type(maxVal.Value) == "number") and maxVal.Value or nil
+
+	-- Fallback: Humanoid (standard Roblox NPCs)
+	if curHP == nil or maxHP == nil then
+		local hum = mob:FindFirstChildWhichIsA("Humanoid")
+		if hum then
+			if curHP == nil then curHP = hum.Health    end
+			if maxHP == nil then maxHP = hum.MaxHealth end
+		end
+	end
+
+	curHP = curHP or 0
+	maxHP = (maxHP and maxHP > 0) and maxHP or 1
+	return curHP, maxHP
 end
 
 local function updateESP(mob, d, playerRoot)
@@ -241,27 +267,22 @@ local function updateESP(mob, d, playerRoot)
 	end
 	updateCornerBox(d.box, bPos, bSize, boxColor)
 
-	-- ── Health bar (FIXED) ────────────────────────────────────────
-	local hum    = mob:FindFirstChildWhichIsA("Humanoid")
-	-- Read live values every frame so the bar actually moves
-	local curHP  = hum and hum.Health    or 0
-	local maxHP  = hum and hum.MaxHealth or 1
-	if maxHP <= 0 then maxHP = 1 end
-	local ratio  = math.clamp(curHP / maxHP, 0, 1)
+	-- ── Health bar ────────────────────────────────────────────────
+	-- getMobHealth reads the live NumberValue children every frame,
+	-- so the bar and text update in real time as the mob takes damage.
+	local curHP, maxHP = getMobHealth(mob)
+	local ratio = math.clamp(curHP / maxHP, 0, 1)
 
 	local barW = math.max(4, screenW * 0.10)
 	local barH = screenH
 
-	-- Outline (dark background behind the bar)
 	d.hbOutline.Size     = Vector2.new(barW,     barH)
 	d.hbOutline.Position = Vector2.new(bPos.X - barW - 3, bPos.Y)
 	d.hbOutline.Visible  = true
 
-	-- Fill: grows from the BOTTOM up; position offsets accordingly
 	local fillH = math.max(1, (barH - 2) * ratio)
 	d.hbFill.Color    = healthColor(ratio)
 	d.hbFill.Size     = Vector2.new(barW - 2, fillH)
-	-- Top of the fill = bottom of the outline minus fillH
 	d.hbFill.Position = Vector2.new(bPos.X - barW - 2, bPos.Y + 1 + (barH - 2) - fillH)
 	d.hbFill.Visible  = true
 
@@ -275,10 +296,8 @@ local function updateESP(mob, d, playerRoot)
 	d.distText.Position = Vector2.new(bPos.X + screenW / 2, bPos.Y + screenH + 2)
 	d.distText.Visible  = true
 
-	-- ── Health text (NEW: "current/max") ─────────────────────────
-	local hpStr = math.floor(curHP) .. "/" .. math.floor(maxHP)
-	d.hpText.Text     = hpStr
-	-- Sits just below the distance label
+	-- ── Health text ──────────────────────────────────────────────
+	d.hpText.Text     = math.floor(curHP) .. "/" .. math.floor(maxHP)
 	d.hpText.Position = Vector2.new(bPos.X + screenW / 2, bPos.Y + screenH + 2 + (ESP_TEXT_SIZE - 1))
 	d.hpText.Visible  = true
 end
@@ -862,7 +881,6 @@ local function makeSlider(labelText, minVal, maxVal, defaultVal, stateKey, onCha
 	end)
 end
 
--- Mob list picker
 local function makeMobList()
 	local card = Instance.new("Frame")
 	card.Size             = UDim2.new(1, 0, 0, 136)
@@ -996,12 +1014,12 @@ makeToggle("No Stun",           "noStun", function(on)
 end)
 makeMobList()
 makeSlider("Farm Distance",      2,    30,   5,  "farmDistance")
-makeSlider("Attack Rate (×10)",  1,    20,   3,  nil, function(v) state.attackRate = v / 10 end)
+makeSlider("Attack Rate (x10)",  1,    20,   3,  nil, function(v) state.attackRate = v / 10 end)
 
 makeSection("Drops")
 makeToggle("Auto Collect",    "autoCollect",   nil)
 makeToggle("Auto Serverhop",  "autoServerhop", function(on)
-	setStatus("Auto Serverhop: " .. (on and "ON — watching drops" or "OFF"))
+	setStatus("Auto Serverhop: " .. (on and "ON - watching drops" or "OFF"))
 end)
 
 do
@@ -1012,7 +1030,7 @@ do
 	hopBtn.TextScaled       = false
 	hopBtn.TextSize         = 13
 	hopBtn.Font             = Enum.Font.GothamBold
-	hopBtn.Text             = "⚡  Serverhop Now"
+	hopBtn.Text             = "Serverhop Now"
 	hopBtn.BorderSizePixel  = 0
 	hopBtn.Parent           = scrollFrame
 	Instance.new("UICorner", hopBtn).CornerRadius = UDim.new(0, 8)
@@ -1094,7 +1112,7 @@ do
 	saveBtn.TextScaled       = false
 	saveBtn.TextSize         = 12
 	saveBtn.Font             = Enum.Font.GothamBold
-	saveBtn.Text             = "💾  Save"
+	saveBtn.Text             = "Save"
 	saveBtn.BorderSizePixel  = 0
 	saveBtn.Parent           = btnRow
 	Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 8)
@@ -1112,7 +1130,7 @@ do
 	loadBtn.TextScaled       = false
 	loadBtn.TextSize         = 12
 	loadBtn.Font             = Enum.Font.GothamBold
-	loadBtn.Text             = "📂  Load"
+	loadBtn.Text             = "Load"
 	loadBtn.BorderSizePixel  = 0
 	loadBtn.Parent           = btnRow
 	Instance.new("UICorner", loadBtn).CornerRadius = UDim.new(0, 8)
@@ -1145,7 +1163,7 @@ do
 	setAutoBtn.TextScaled       = false
 	setAutoBtn.TextSize         = 11
 	setAutoBtn.Font             = Enum.Font.Gotham
-	setAutoBtn.Text             = "⚡ Set Autoload"
+	setAutoBtn.Text             = "Set Autoload"
 	setAutoBtn.BorderSizePixel  = 0
 	setAutoBtn.Parent           = autoRow
 	Instance.new("UICorner", setAutoBtn).CornerRadius = UDim.new(0, 8)
@@ -1164,7 +1182,7 @@ do
 	clearAutoBtn.TextScaled       = false
 	clearAutoBtn.TextSize         = 11
 	clearAutoBtn.Font             = Enum.Font.Gotham
-	clearAutoBtn.Text             = "✖ Clear Autoload"
+	clearAutoBtn.Text             = "Clear Autoload"
 	clearAutoBtn.BorderSizePixel  = 0
 	clearAutoBtn.Parent           = autoRow
 	Instance.new("UICorner", clearAutoBtn).CornerRadius = UDim.new(0, 8)
@@ -1231,7 +1249,7 @@ do
 				chip.TextScaled       = false
 				chip.TextSize         = 11
 				chip.Font             = isAuto and Enum.Font.GothamBold or Enum.Font.Gotham
-				chip.Text             = (isAuto and "⚡ " or "") .. name
+				chip.Text             = (isAuto and "[auto] " or "") .. name
 				chip.BorderSizePixel  = 0
 				chip.Parent           = configScroll
 				Instance.new("UICorner", chip).CornerRadius = UDim.new(0, 5)
@@ -1260,7 +1278,7 @@ do
 	refreshCfgBtn.TextScaled       = false
 	refreshCfgBtn.TextSize         = 11
 	refreshCfgBtn.Font             = Enum.Font.Gotham
-	refreshCfgBtn.Text             = "🔄  Refresh Config List"
+	refreshCfgBtn.Text             = "Refresh Config List"
 	refreshCfgBtn.BorderSizePixel  = 0
 	refreshCfgBtn.Parent           = scrollFrame
 	Instance.new("UICorner", refreshCfgBtn).CornerRadius = UDim.new(0, 8)
@@ -1270,7 +1288,7 @@ do
 end
 
 -- ============================================================
--- AUTOLOAD runs AFTER the GUI is fully built
+-- AUTOLOAD
 -- ============================================================
 do
 	local autoName = getAutoload()
@@ -1389,7 +1407,7 @@ RunService.Heartbeat:Connect(function(dt)
 			dropsEmptyTimer += dt
 			local remaining = math.ceil(3 - dropsEmptyTimer)
 			if dropsEmptyTimer < 3 then
-				setStatus("No cursed fingers — hopping in " .. remaining .. "s")
+				setStatus("No cursed fingers - hopping in " .. remaining .. "s")
 			else
 				doServerhop()
 			end
@@ -1399,5 +1417,5 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 end)
 
-print("✅ Sharmoodie Hub loaded! Press RAlt to toggle GUI.")
-setStatus("Sharmoodie ready ✔")
+print("Sharmoodie Hub loaded! Press RAlt to toggle GUI.")
+setStatus("Sharmoodie ready")
