@@ -215,19 +215,14 @@ end
 
 -- ============================================================
 -- HEALTH READING HELPER
--- This game stores health as NumberValue children directly on
--- the mob model: workspace.Mobs[Name].Health / .MaxHealth
--- Falls back to a Humanoid for any standard NPCs.
 -- ============================================================
 local function getMobHealth(mob)
-	-- Primary: direct NumberValue children named "Health" / "MaxHealth"
 	local hpVal  = mob:FindFirstChild("Health")
 	local maxVal = mob:FindFirstChild("MaxHealth")
 
 	local curHP = hpVal  and (type(hpVal.Value)  == "number") and hpVal.Value  or nil
 	local maxHP = maxVal and (type(maxVal.Value) == "number") and maxVal.Value or nil
 
-	-- Fallback: Humanoid (standard Roblox NPCs)
 	if curHP == nil or maxHP == nil then
 		local hum = mob:FindFirstChildWhichIsA("Humanoid")
 		if hum then
@@ -267,9 +262,6 @@ local function updateESP(mob, d, playerRoot)
 	end
 	updateCornerBox(d.box, bPos, bSize, boxColor)
 
-	-- ── Health bar ────────────────────────────────────────────────
-	-- getMobHealth reads the live NumberValue children every frame,
-	-- so the bar and text update in real time as the mob takes damage.
 	local curHP, maxHP = getMobHealth(mob)
 	local ratio = math.clamp(curHP / maxHP, 0, 1)
 
@@ -286,17 +278,14 @@ local function updateESP(mob, d, playerRoot)
 	d.hbFill.Position = Vector2.new(bPos.X - barW - 2, bPos.Y + 1 + (barH - 2) - fillH)
 	d.hbFill.Visible  = true
 
-	-- ── Name label ───────────────────────────────────────────────
 	d.nameText.Text     = mob.Name
 	d.nameText.Position = Vector2.new(bPos.X + screenW / 2, bPos.Y - ESP_TEXT_SIZE - 2)
 	d.nameText.Visible  = true
 
-	-- ── Distance label ───────────────────────────────────────────
 	d.distText.Text     = dist .. " studs"
 	d.distText.Position = Vector2.new(bPos.X + screenW / 2, bPos.Y + screenH + 2)
 	d.distText.Visible  = true
 
-	-- ── Health text ──────────────────────────────────────────────
 	d.hpText.Text     = math.floor(curHP) .. "/" .. math.floor(maxHP)
 	d.hpText.Position = Vector2.new(bPos.X + screenW / 2, bPos.Y + screenH + 2 + (ESP_TEXT_SIZE - 1))
 	d.hpText.Visible  = true
@@ -534,6 +523,36 @@ local function doServerhop()
 
 				local chosen = servers[math.random(1, #servers)]
 				task.wait(0.5)
+
+				-- ── FIX: listen for teleport failure so we know if the server
+				--         was full between listing and actually joining it.
+				local teleportConn
+				teleportConn = TeleportService.TeleportInitFailed:Connect(function(plr, result, _errMsg)
+					if plr ~= player then return end
+					teleportConn:Disconnect()
+					setStatus("Teleport failed (" .. tostring(result) .. "), retrying in " .. HOP_RETRY_DELAY .. "s...")
+					task.wait(HOP_RETRY_DELAY)
+					if attempt < MAX_HOP_ATTEMPTS then
+						-- Reset flag so the recursive tryHop call is not blocked
+						isHopping = false
+						isHopping = true
+						tryHop()
+					else
+						setStatus("Hop failed after " .. attempt .. " attempts")
+						isHopping = false
+					end
+				end)
+
+				-- Safety net: if neither success nor TeleportInitFailed fires within
+				-- 12 seconds, something stalled — reset so the loop can retry.
+				task.delay(12, function()
+					if teleportConn.Connected then
+						teleportConn:Disconnect()
+						setStatus("Teleport timed out, retrying...")
+						isHopping = false
+					end
+				end)
+
 				TeleportService:TeleportToPlaceInstance(game.PlaceId, chosen, player)
 			end)
 
