@@ -51,7 +51,7 @@ local state = {
 	espMaxDist      = 300,
 	autoServerhop   = false,
 	noStun          = false,
-	infiniteStamina = false,  -- NEW
+	infiniteStamina = false,
 }
 
 local uiRefreshCallbacks = {}
@@ -350,7 +350,7 @@ local CONFIG_KEYS = {
 	"speedHack", "flyHack", "selectedMob",
 	"farmDistance", "flySpeed", "attackRate",
 	"espMaxDist", "noStun", "autoServerhop",
-	"infiniteStamina",  -- NEW
+	"infiniteStamina",
 }
 
 local function ensureFolder()
@@ -1068,7 +1068,7 @@ makeToggle("Noclip", "noclip", function(on)
 		end
 	end
 end)
-makeToggle("Infinite Stamina", "infiniteStamina", nil)  -- NEW
+makeToggle("Infinite Stamina", "infiniteStamina", nil)
 makeSlider("Fly Speed", 10, 1000, 60, "flySpeed")
 
 makeSection("Config")
@@ -1355,6 +1355,7 @@ RunService.Heartbeat:Connect(function(dt)
 	local root     = character:FindFirstChild("HumanoidRootPart")
 	if not root or not humanoid then return end
 
+	-- ── NO STUN ───────────────────────────────────────────────
 	if state.noStun then
 		humanoid:SetStateEnabled(Enum.HumanoidStateType.StrafingNoPhysics, false)
 		humanoid:SetStateEnabled(Enum.HumanoidStateType.PlatformStanding,  false)
@@ -1367,9 +1368,8 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 
 	-- ── INFINITE STAMINA ──────────────────────────────────────
-	-- ── INFINITE STAMINA ──────────────────────────────────────
 	if state.infiniteStamina then
-		-- Core values
+		-- Data values
 		local data = player:FindFirstChild("Data")
 		if data then
 			local stamina    = data:FindFirstChild("Stamina")
@@ -1378,6 +1378,7 @@ RunService.Heartbeat:Connect(function(dt)
 				stamina.Value = maxStamina.Value
 			end
 		end
+		-- Status values (mount stamina)
 		local status = player:FindFirstChild("Status")
 		if status then
 			local mountStamina    = status:FindFirstChild("MountStamina")
@@ -1389,26 +1390,28 @@ RunService.Heartbeat:Connect(function(dt)
 		-- Force GUI bars directly
 		local playerGui = player:FindFirstChild("PlayerGui")
 		if playerGui then
-			-- Regular stamina bar
-			local movesBar = playerGui:FindFirstChild("Moves")
-			if movesBar then
-				local barsFolder = movesBar:FindFirstChild("Bars")
+			-- Regular stamina bar (PlayerGui > Moves > Bars > Stamina)
+			local movesGui = playerGui:FindFirstChild("Moves")
+			if movesGui then
+				local barsFolder = movesGui:FindFirstChild("Bars")
 				if barsFolder then
 					local stamBar = barsFolder:FindFirstChild("Stamina")
 					if stamBar then
 						local img = stamBar:FindFirstChild("StaminaIMG")
 						local txt = stamBar:FindFirstChild("staminatext")
 						if img then img.Size = UDim2.new(1, 0, 1, 0) end
-						if txt and data then
-							local maxStamina = data:FindFirstChild("MaxStamina")
+						if txt then
+							local data2 = player:FindFirstChild("Data")
+							local maxStamina = data2 and data2:FindFirstChild("MaxStamina")
 							if maxStamina then
-								txt.Text = tostring(math.floor(maxStamina.Value)) .. "/" .. tostring(math.floor(maxStamina.Value))
+								local maxVal = math.floor(maxStamina.Value)
+								txt.Text = maxVal .. "/" .. maxVal
 							end
 						end
 					end
 				end
 			end
-			-- Mount stamina bar
+			-- Mount stamina bar (PlayerGui > MountStamina > Stamina)
 			local mountGui = playerGui:FindFirstChild("MountStamina")
 			if mountGui then
 				local stamBar = mountGui:FindFirstChild("Stamina")
@@ -1416,10 +1419,12 @@ RunService.Heartbeat:Connect(function(dt)
 					local img = stamBar:FindFirstChild("StaminaIMG")
 					local txt = stamBar:FindFirstChild("staminatext")
 					if img then img.Size = UDim2.new(1, 0, 1, 0) end
-					if txt and status then
-						local maxMount = status:FindFirstChild("MaxMountStamina")
+					if txt then
+						local status2 = player:FindFirstChild("Status")
+						local maxMount = status2 and status2:FindFirstChild("MaxMountStamina")
 						if maxMount then
-							txt.Text = tostring(math.floor(maxMount.Value)) .. "/" .. tostring(math.floor(maxMount.Value))
+							local maxVal = math.floor(maxMount.Value)
+							txt.Text = maxVal .. "/" .. maxVal
 						end
 					end
 				end
@@ -1427,9 +1432,8 @@ RunService.Heartbeat:Connect(function(dt)
 		end
 	end
 	-- ─────────────────────────────────────────────────────────
-	-- ─────────────────────────────────────────────────────────
-	-- ─────────────────────────────────────────────────────────
 
+	-- ── SPEED / FLY ───────────────────────────────────────────
 	if not state.flyHack then
 		humanoid.WalkSpeed = state.speedHack and HACK_SPEED or DEFAULT_SPEED
 	end
@@ -1445,10 +1449,12 @@ RunService.Heartbeat:Connect(function(dt)
 		if flyBodyGyro then flyBodyGyro.CFrame = workspace.CurrentCamera.CFrame end
 	end
 
+	-- ── ESP ───────────────────────────────────────────────────
 	if state.mobESP then
 		for mob, d in pairs(espData) do updateESP(mob, d, root) end
 	end
 
+	-- ── AUTO FARM / COLLECT ───────────────────────────────────
 	if state.autoFarm then
 		autoFarmTimer += dt
 		local target = getTargetMob()
@@ -1476,6 +1482,7 @@ RunService.Heartbeat:Connect(function(dt)
 		end
 	end
 
+	-- ── AUTO SERVERHOP ────────────────────────────────────────
 	if state.autoServerhop then
 		local curseCount = 0
 		for _, drop in ipairs(DROP_FOLDER:GetChildren()) do
