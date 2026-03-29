@@ -1384,7 +1384,20 @@ RunService.Heartbeat:Connect(function(dt)
 				mountStamina.Value = maxMountStamina.Value
 			end
 		end
+		-- Try character-level stamina (covers GUI-driven values)
+		if character then
+			if character:GetAttribute("Stamina") ~= nil then
+				local maxAttr = character:GetAttribute("MaxStamina")
+				character:SetAttribute("Stamina", maxAttr or character:GetAttribute("Stamina"))
+			end
+			local stamChar    = character:FindFirstChild("Stamina")
+			local maxStamChar = character:FindFirstChild("MaxStamina")
+			if stamChar and stamChar:IsA("NumberValue") then
+				stamChar.Value = maxStamChar and maxStamChar.Value or stamChar.Value
+			end
+		end
 	end
+	-- ─────────────────────────────────────────────────────────
 	-- ─────────────────────────────────────────────────────────
 
 	if not state.flyHack then
