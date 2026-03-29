@@ -1368,6 +1368,7 @@ RunService.Heartbeat:Connect(function(dt)
 
 	-- ── INFINITE STAMINA ──────────────────────────────────────
 	if state.infiniteStamina then
+		-- Core values
 		local data = player:FindFirstChild("Data")
 		if data then
 			local stamina    = data:FindFirstChild("Stamina")
@@ -1384,19 +1385,28 @@ RunService.Heartbeat:Connect(function(dt)
 				mountStamina.Value = maxMountStamina.Value
 			end
 		end
-		-- Try character-level stamina (covers GUI-driven values)
-		if character then
-			if character:GetAttribute("Stamina") ~= nil then
-				local maxAttr = character:GetAttribute("MaxStamina")
-				character:SetAttribute("Stamina", maxAttr or character:GetAttribute("Stamina"))
+		-- Force GUI bars directly
+		local playerGui = player:FindFirstChild("PlayerGui")
+		if playerGui then
+			-- Regular stamina bar
+			local movesBar = playerGui:FindFirstChild("Moves")
+			if movesBar then
+				local barsFolder = movesBar:FindFirstChild("Bars")
+				if barsFolder then
+					local stamBar = barsFolder:FindFirstChild("Stamina")
+					if stamBar then
+						local img = stamBar:FindFirstChild("StaminaIMG")
+						local txt = stamBar:FindFirstChild("staminatext")
+						if img then img.Size = UDim2.new(1, 0, 1, 0) end
+						if txt and data then
+							local maxStamina = data:FindFirstChild("MaxStamina")
+							if maxStamina then
+								txt.Text = tostring(math.floor(maxStamina.Value)) .. "/" .. tostring(math.floor(maxStamina.Value))
+							end
+						end
+					end
+				end
 			end
-			local stamChar    = character:FindFirstChild("Stamina")
-			local maxStamChar = character:FindFirstChild("MaxStamina")
-			if stamChar and stamChar:IsA("NumberValue") then
-				stamChar.Value = maxStamChar and maxStamChar.Value or stamChar.Value
-			end
-		end
-	end
 	-- ─────────────────────────────────────────────────────────
 	-- ─────────────────────────────────────────────────────────
 
