@@ -1,0 +1,360 @@
+local Players     = game:GetService("Players")
+local workspace   = game:GetService("Workspace")
+local HttpService = game:GetService("HttpService")
+local LocalPlayer = Players.LocalPlayer
+
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+
+local Window = Rayfield:CreateWindow({
+	Name            = "Mining ESP",
+	LoadingTitle    = "Mining ESP",
+	LoadingSubtitle = "by you",
+	Theme           = "Default",
+})
+
+-- ══════════════════════════════════════════════════════════════════════════════
+--  CONNECTION REGISTRY  (used by Unload to cleanly disconnect everything)
+-- ══════════════════════════════════════════════════════════════════════════════
+local connections = {}
+local function track(conn) connections[#connections + 1] = conn end
+
+local function disconnectAll()
+	for _, c in ipairs(connections) do pcall(function() c:Disconnect() end) end
+	table.clear(connections)
+end
+
+
+-- ══════════════════════════════════════════════════════════════════════════════
+--  ORE ESP
+-- ══════════════════════════════════════════════════════════════════════════════
+local OreTab = Window:CreateTab("Ores", 6022668955)
+OreTab:CreateSection("Ore ESP")
+
+local ORE_COLORS = {
+	["Tin"]     = Color3.fromRGB(163, 162, 165),
+	["Copper"]  = Color3.fromRGB(184, 115,  51),
+	["Iron"]    = Color3.fromRGB(161, 102,  94),
+	["Gold"]    = Color3.fromRGB(255, 215,   0),
+	["Silver"]  = Color3.fromRGB(192, 192, 192),
+	["Coal"]    = Color3.fromRGB( 54,  54,  54),
+	["Diamond"] = Color3.fromRGB(100, 220, 255),
+	["Emerald"] = Color3.fromRGB(  0, 200, 100),
+}
+
+local ORE_OPTIONS   = { "All", "Tin", "Copper", "Iron", "Gold", "Silver", "Coal", "Diamond", "Emerald" }
+local knownOreTypes = {}
+for _, v in ipairs(ORE_OPTIONS) do knownOreTypes[v] = true end
+
+local oreAdornments = {}
+local selectedOre   = "All"
+local oreESPEnabled = false
+local oreDropdown
+
+local function shouldShowOre(part)
+	if selectedOre == "All" then return true end
+	return (part:GetAttribute("MineId") or "") == selectedOre
+end
+
+local function addOreESP(part)
+	if not part:IsA("BasePart") then return end
+	if oreAdornments[part] then return end
+	if not shouldShowOre(part) then return end
+
+	local mineId = part:GetAttribute("MineId") or "Unknown"
+	local color  = ORE_COLORS[mineId] or Color3.fromRGB(255, 255, 255)
+
+	local box = Instance.new("SelectionBox")
+	box.Adornee             = part
+	box.Color3              = color
+	box.LineThickness       = 0.08
+	box.SurfaceTransparency = 0.6
+	box.SurfaceColor3       = color
+	box.Parent              = workspace.CurrentCamera
+
+	local bb = Instance.new("BillboardGui")
+	bb.Adornee     = part
+	bb.AlwaysOnTop = true
+	bb.Size        = UDim2.new(0, 120, 0, 30)
+	bb.StudsOffset = Vector3.new(0, 3, 0)
+	bb.Parent      = workspace.CurrentCamera
+
+	local lbl = Instance.new("TextLabel")
+	lbl.BackgroundTransparency = 1
+	lbl.Size                   = UDim2.new(1, 0, 1, 0)
+	lbl.Text                   = mineId
+	lbl.TextColor3             = color
+	lbl.TextStrokeTransparency = 0.4
+	lbl.TextStrokeColor3       = Color3.new(0, 0, 0)
+	lbl.Font                   = Enum.Font.GothamBold
+	lbl.TextSize               = 14
+	lbl.Parent                 = bb
+
+	oreAdornments[part] = { box = box, billboard = bb }
+end
+
+local function removeOreESP(part)
+	local data = oreAdornments[part]
+	if data then
+		data.box:Destroy()
+		data.billboard:Destroy()
+		oreAdornments[part] = nil
+	end
+end
+
+local function clearAllOreESP()
+	for part in pairs(oreAdornments) do removeOreESP(part) end
+end
+
+local function refreshOreESP()
+	clearAllOreESP()
+	local placedOre = workspace:FindFirstChild("PlacedOre")
+	if not placedOre then return end
+	for _, child in placedOre:GetChildren() do addOreESP(child) end
+end
+
+local function buildOreDropdown()
+	if oreDropdown then
+		pcall(function() oreDropdown.Dropdown:Destroy() end)
+		oreDropdown = nil
+	end
+	oreDropdown = OreTab:CreateDropdown({
+		Name            = "Ore Type Filter",
+		Info            = "Only highlight this ore type, or All for every ore",
+		Options         = ORE_OPTIONS,
+		CurrentOption   = { selectedOre },
+		MultipleOptions = false,
+		Flag            = "OreDropdown",
+		Callback        = function(option)
+			selectedOre = option
+			if oreESPEnabled then refreshOreESP() end
+		end,
+	})
+end
+
+local function registerOreType(mineId)
+	if not mineId or mineId == "" then return end
+	if knownOreTypes[mineId] then return end
+	knownOreTypes[mineId] = true
+	table.insert(ORE_OPTIONS, mineId)
+	buildOreDropdown()
+	Rayfield:Notify({ Title = "New Ore Detected", Content = mineId .. " added to filter.", Duration = 3 })
+end
+
+OreTab:CreateToggle({
+	Name         = "Show Ore ESP",
+	Info         = "Highlights ores in Workspace.PlacedOre",
+	CurrentValue = false,
+	Flag         = "OreESP",
+	Callback     = function(enabled)
+		oreESPEnabled = enabled
+		if enabled then
+			if not workspace:FindFirstChild("PlacedOre") then
+				Rayfield:Notify({ Title = "Ore ESP", Content = "PlacedOre not found.", Duration = 4 })
+				return
+			end
+			refreshOreESP()
+		else
+			clearAllOreESP()
+		end
+	end,
+})
+
+buildOreDropdown()
+
+task.spawn(function()
+	local placedOre = workspace:WaitForChild("PlacedOre", 60)
+	if not placedOre then return end
+
+	for _, child in placedOre:GetChildren() do
+		registerOreType(child:GetAttribute("MineId"))
+	end
+
+	track(placedOre.ChildAdded:Connect(function(part)
+		registerOreType(part:GetAttribute("MineId"))
+		if oreESPEnabled and shouldShowOre(part) then addOreESP(part) end
+	end))
+
+	track(placedOre.ChildRemoved:Connect(function(part)
+		if oreESPEnabled then removeOreESP(part) end
+	end))
+end)
+
+
+-- ══════════════════════════════════════════════════════════════════════════════
+--  TELEPORT
+-- ══════════════════════════════════════════════════════════════════════════════
+local TpTab = Window:CreateTab("Teleport", 3926305904)
+TpTab:CreateSection("Locations")
+
+local function teleportTo(model)
+	local char = LocalPlayer.Character
+	if not char then return end
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+
+	if not model then
+		Rayfield:Notify({ Title = "Teleport", Content = "Location not found in workspace.", Duration = 3 })
+		return
+	end
+
+	local target = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+	if not target then
+		Rayfield:Notify({ Title = "Teleport", Content = "No valid part found in " .. model.Name, Duration = 3 })
+		return
+	end
+
+	hrp.CFrame = target.CFrame + Vector3.new(0, 5, 0)
+end
+
+-- Mine
+TpTab:CreateButton({
+	Name     = "Mine",
+	Info     = "Teleport to the mine",
+	Callback = function()
+		teleportTo(workspace:FindFirstChild("CollapseStuff"))
+	end,
+})
+
+-- Plot (matched by UserId attribute)
+TpTab:CreateButton({
+	Name     = "My Plot",
+	Info     = "Teleport to your assigned plot",
+	Callback = function()
+		local plots = workspace:FindFirstChild("Plots")
+		if not plots then
+			Rayfield:Notify({ Title = "Teleport", Content = "Plots folder not found.", Duration = 3 })
+			return
+		end
+
+		local myPlot
+		for _, plot in plots:GetChildren() do
+			-- covers the most common attribute naming conventions
+			local id = plot:GetAttribute("PlayerId")
+				or plot:GetAttribute("OwnerId")
+				or plot:GetAttribute("Owner")
+				or plot:GetAttribute("UserId")
+			if id == LocalPlayer.UserId then
+				myPlot = plot
+				break
+			end
+		end
+
+		if myPlot then
+			teleportTo(myPlot)
+		else
+			Rayfield:Notify({ Title = "Teleport", Content = "Your plot was not found.\nMake sure you own one.", Duration = 4 })
+		end
+	end,
+})
+
+-- Stores
+TpTab:CreateSection("Stores")
+for _, storeName in ipairs({ "Explosives Store", "Pickaxe Store", "Backpack Store", "Prestige Store" }) do
+	TpTab:CreateButton({
+		Name     = storeName,
+		Info     = "Teleport to the " .. storeName,
+		Callback = function()
+			teleportTo(workspace:FindFirstChild(storeName))
+		end,
+	})
+end
+
+
+-- ══════════════════════════════════════════════════════════════════════════════
+--  MISC
+-- ══════════════════════════════════════════════════════════════════════════════
+local MiscTab = Window:CreateTab("Misc", 4483362458)
+MiscTab:CreateSection("Character")
+
+MiscTab:CreateButton({
+	Name     = "Refresh Cooldowns",
+	Info     = "Kills your character and teleports you back to the same spot",
+	Callback = function()
+		local char = LocalPlayer.Character
+		if not char then return end
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if not hrp or not hum then return end
+
+		local savedCFrame = hrp.CFrame
+		local conn
+		conn = LocalPlayer.CharacterAdded:Connect(function(newChar)
+			conn:Disconnect()
+			local newHRP = newChar:WaitForChild("HumanoidRootPart", 10)
+			if newHRP then
+				task.wait(0.2)
+				newHRP.CFrame = savedCFrame
+			end
+		end)
+
+		hum.Health = 0
+
+		Rayfield:Notify({ Title = "Cooldowns Refreshed", Content = "Respawning and teleporting back.", Duration = 3 })
+	end,
+})
+
+
+-- ══════════════════════════════════════════════════════════════════════════════
+--  SETTINGS
+-- ══════════════════════════════════════════════════════════════════════════════
+local CONFIG_PATH = "MiningESP_config.json"
+
+local function saveConfig()
+	local data = {
+		selectedOre   = selectedOre,
+		oreESPEnabled = oreESPEnabled,
+	}
+	local ok, err = pcall(function()
+		writefile(CONFIG_PATH, HttpService:JSONEncode(data))
+	end)
+	if ok then
+		Rayfield:Notify({ Title = "Config", Content = "Saved successfully.", Duration = 2 })
+	else
+		Rayfield:Notify({ Title = "Config", Content = "Save failed: " .. tostring(err), Duration = 4 })
+	end
+end
+
+local function loadConfig()
+	if not isfile(CONFIG_PATH) then return end
+	local ok, data = pcall(function()
+		return HttpService:JSONDecode(readfile(CONFIG_PATH))
+	end)
+	if not ok or type(data) ~= "table" then return end
+
+	if type(data.selectedOre) == "string" then
+		selectedOre = data.selectedOre
+		pcall(function() Rayfield.Flags["OreDropdown"]:Set(data.selectedOre) end)
+	end
+
+	if type(data.oreESPEnabled) == "boolean" then
+		pcall(function() Rayfield.Flags["OreESP"]:Set(data.oreESPEnabled) end)
+	end
+
+	Rayfield:Notify({ Title = "Config", Content = "Settings loaded.", Duration = 2 })
+end
+
+local SettingsTab = Window:CreateTab("Settings", 3944680095)
+SettingsTab:CreateSection("Config")
+
+SettingsTab:CreateButton({
+	Name     = "Save Config",
+	Info     = "Saves current toggle and filter settings to file",
+	Callback = saveConfig,
+})
+
+SettingsTab:CreateSection("Menu")
+
+SettingsTab:CreateButton({
+	Name     = "Unload",
+	Info     = "Destroys the GUI and disconnects all hooks",
+	Callback = function()
+		disconnectAll()
+		clearAllOreESP()
+		pcall(function() Rayfield:Destroy() end)
+	end,
+})
+
+-- ══════════════════════════════════════════════════════════════════════════════
+--  AUTOLOAD CONFIG  (runs after all UI elements exist so flags are registered)
+-- ══════════════════════════════════════════════════════════════════════════════
+task.defer(loadConfig)
