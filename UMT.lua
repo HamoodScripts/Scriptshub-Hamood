@@ -1,7 +1,8 @@
-local Players     = game:GetService("Players")
-local workspace   = game:GetService("Workspace")
-local HttpService = game:GetService("HttpService")
-local LocalPlayer = Players.LocalPlayer
+local Players       = game:GetService("Players")
+local workspace     = game:GetService("Workspace")
+local HttpService   = game:GetService("HttpService")
+local VIM           = game:GetService("VirtualInputManager")
+local LocalPlayer   = Players.LocalPlayer
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
@@ -13,7 +14,7 @@ local Window = Rayfield:CreateWindow({
 })
 
 -- ══════════════════════════════════════════════════════════════════════════════
---  CONNECTION REGISTRY  (used by Unload to cleanly disconnect everything)
+--  CONNECTION REGISTRY
 -- ══════════════════════════════════════════════════════════════════════════════
 local connections = {}
 local function track(conn) connections[#connections + 1] = conn end
@@ -206,7 +207,6 @@ local function teleportTo(model)
 	hrp.CFrame = target.CFrame + Vector3.new(0, 5, 0)
 end
 
--- Mine
 TpTab:CreateButton({
 	Name     = "Mine",
 	Info     = "Teleport to the mine",
@@ -215,7 +215,6 @@ TpTab:CreateButton({
 	end,
 })
 
--- Plot (matched by UserId attribute)
 TpTab:CreateButton({
 	Name     = "My Plot",
 	Info     = "Teleport to your assigned plot",
@@ -228,7 +227,6 @@ TpTab:CreateButton({
 
 		local myPlot
 		for _, plot in plots:GetChildren() do
-			-- covers the most common attribute naming conventions
 			local id = plot:GetAttribute("PlayerId")
 				or plot:GetAttribute("OwnerId")
 				or plot:GetAttribute("Owner")
@@ -247,7 +245,6 @@ TpTab:CreateButton({
 	end,
 })
 
--- Stores
 TpTab:CreateSection("Stores")
 for _, storeName in ipairs({ "Explosives Store", "Pickaxe Store", "Backpack Store", "Prestige Store" }) do
 	TpTab:CreateButton({
@@ -293,6 +290,114 @@ MiscTab:CreateButton({
 	end,
 })
 
+-- ══════════════════════════════════════════════════════════════════════════════
+--  AUTO SELL
+-- ══════════════════════════════════════════════════════════════════════════════
+MiscTab:CreateSection("Auto Sell")
+
+local autoSellEnabled = false
+local autoSellThread  = nil
+local SELL_INTERVAL   = 60
+
+local function getUnloader()
+	local ok, result = pcall(function()
+		return workspace.FactoryGridItemsClient.DSBuild3.DSBuild3.Unloader1
+	end)
+	return ok and result or nil
+end
+
+local function pressE()
+	VIM:SendKeyEvent(true,  Enum.KeyCode.E, false, game)
+	task.wait(0.1)
+	VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+end
+
+local function doSell()
+	local char = LocalPlayer.Character
+	if not char then return end
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+
+	local unloader = getUnloader()
+	if not unloader then
+		Rayfield:Notify({ Title = "Auto Sell", Content = "Unloader not found in workspace.", Duration = 3 })
+		return
+	end
+
+	local sellPart = unloader.PrimaryPart or unloader:FindFirstChildWhichIsA("BasePart")
+	if not sellPart then
+		Rayfield:Notify({ Title = "Auto Sell", Content = "No BasePart found on Unloader.", Duration = 3 })
+		return
+	end
+
+	local returnCFrame = hrp.CFrame
+
+	hrp.CFrame = sellPart.CFrame + Vector3.new(0, 4, 0)
+	task.wait(0.5)
+
+	pressE()
+	task.wait(0.5)
+
+	hrp.CFrame = returnCFrame
+end
+
+local function stopAutoSellLoop()
+	autoSellEnabled = false
+	if autoSellThread then
+		task.cancel(autoSellThread)
+		autoSellThread = nil
+	end
+end
+
+local function startAutoSellLoop()
+	autoSellThread = task.spawn(function()
+		while autoSellEnabled do
+			doSell()
+			local elapsed = 0
+			while elapsed < SELL_INTERVAL and autoSellEnabled do
+				task.wait(1)
+				elapsed += 1
+			end
+		end
+	end)
+end
+
+MiscTab:CreateButton({
+	Name     = "Sell Now",
+	Info     = "Teleport to the unloader, press E once, and return",
+	Callback = function()
+		doSell()
+	end,
+})
+
+MiscTab:CreateSlider({
+	Name         = "Sell Interval (seconds)",
+	Info         = "How often Auto Sell fires",
+	Range        = { 10, 300 },
+	Increment    = 5,
+	Suffix       = "s",
+	CurrentValue = SELL_INTERVAL,
+	Flag         = "SellInterval",
+	Callback     = function(value)
+		SELL_INTERVAL = value
+	end,
+})
+
+MiscTab:CreateToggle({
+	Name         = "Auto Sell",
+	Info         = "Automatically sells on the chosen interval",
+	CurrentValue = false,
+	Flag         = "AutoSell",
+	Callback     = function(enabled)
+		if enabled then
+			autoSellEnabled = true
+			startAutoSellLoop()
+		else
+			stopAutoSellLoop()
+		end
+	end,
+})
+
 
 -- ══════════════════════════════════════════════════════════════════════════════
 --  SETTINGS
@@ -301,8 +406,9 @@ local CONFIG_PATH = "MiningESP_config.json"
 
 local function saveConfig()
 	local data = {
-		selectedOre   = selectedOre,
-		oreESPEnabled = oreESPEnabled,
+		selectedOre      = selectedOre,
+		oreESPEnabled    = oreESPEnabled,
+		autoSellInterval = SELL_INTERVAL,
 	}
 	local ok, err = pcall(function()
 		writefile(CONFIG_PATH, HttpService:JSONEncode(data))
@@ -330,6 +436,11 @@ local function loadConfig()
 		pcall(function() Rayfield.Flags["OreESP"]:Set(data.oreESPEnabled) end)
 	end
 
+	if type(data.autoSellInterval) == "number" then
+		SELL_INTERVAL = data.autoSellInterval
+		pcall(function() Rayfield.Flags["SellInterval"]:Set(data.autoSellInterval) end)
+	end
+
 	Rayfield:Notify({ Title = "Config", Content = "Settings loaded.", Duration = 2 })
 end
 
@@ -348,13 +459,15 @@ SettingsTab:CreateButton({
 	Name     = "Unload",
 	Info     = "Destroys the GUI and disconnects all hooks",
 	Callback = function()
+		stopAutoSellLoop()
 		disconnectAll()
 		clearAllOreESP()
 		pcall(function() Rayfield:Destroy() end)
 	end,
 })
 
+
 -- ══════════════════════════════════════════════════════════════════════════════
---  AUTOLOAD CONFIG  (runs after all UI elements exist so flags are registered)
+--  AUTOLOAD
 -- ══════════════════════════════════════════════════════════════════════════════
 task.defer(loadConfig)
