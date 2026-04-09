@@ -2,14 +2,15 @@ local Players       = game:GetService("Players")
 local workspace     = game:GetService("Workspace")
 local HttpService   = game:GetService("HttpService")
 local VIM           = game:GetService("VirtualInputManager")
+local UIS           = game:GetService("UserInputService")
 local LocalPlayer   = Players.LocalPlayer
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
 local Window = Rayfield:CreateWindow({
-	Name            = "Mining ESP",
-	LoadingTitle    = "Mining ESP",
-	LoadingSubtitle = "by you",
+	Name            = "Hamood vibecoding",
+	LoadingTitle    = "UMT SCRIPT",
+	LoadingSubtitle = "by Hamood",
 	Theme           = "Default",
 })
 
@@ -31,73 +32,31 @@ end
 local OreTab = Window:CreateTab("Ores", 6022668955)
 OreTab:CreateSection("Ore ESP")
 
-local ORE_COLORS = {
-	["Tin"]     = Color3.fromRGB(163, 162, 165),
-	["Copper"]  = Color3.fromRGB(184, 115,  51),
-	["Iron"]    = Color3.fromRGB(161, 102,  94),
-	["Gold"]    = Color3.fromRGB(255, 215,   0),
-	["Silver"]  = Color3.fromRGB(192, 192, 192),
-	["Coal"]    = Color3.fromRGB( 54,  54,  54),
-	["Diamond"] = Color3.fromRGB(100, 220, 255),
-	["Emerald"] = Color3.fromRGB(  0, 200, 100),
-}
-
-local ORE_OPTIONS   = { "All", "Tin", "Copper", "Iron", "Gold", "Silver", "Coal", "Diamond", "Emerald" }
-local knownOreTypes = {}
-for _, v in ipairs(ORE_OPTIONS) do knownOreTypes[v] = true end
-
 local oreAdornments = {}
-local selectedOre   = "All"
 local oreESPEnabled = false
-local oreDropdown
-
-local function shouldShowOre(part)
-	if selectedOre == "All" then return true end
-	return (part:GetAttribute("MineId") or "") == selectedOre
-end
 
 local function addOreESP(part)
 	if not part:IsA("BasePart") then return end
 	if oreAdornments[part] then return end
-	if not shouldShowOre(part) then return end
 
-	local mineId = part:GetAttribute("MineId") or "Unknown"
-	local color  = ORE_COLORS[mineId] or Color3.fromRGB(255, 255, 255)
+	local color = part.Color
 
-	local box = Instance.new("SelectionBox")
-	box.Adornee             = part
-	box.Color3              = color
-	box.LineThickness       = 0.08
-	box.SurfaceTransparency = 0.6
-	box.SurfaceColor3       = color
-	box.Parent              = workspace.CurrentCamera
+	local highlight = Instance.new("Highlight")
+	highlight.Adornee             = part
+	highlight.FillColor           = color
+	highlight.OutlineColor        = color
+	highlight.FillTransparency    = 0.5
+	highlight.OutlineTransparency = 0
+	highlight.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+	highlight.Parent              = workspace.CurrentCamera
 
-	local bb = Instance.new("BillboardGui")
-	bb.Adornee     = part
-	bb.AlwaysOnTop = true
-	bb.Size        = UDim2.new(0, 120, 0, 30)
-	bb.StudsOffset = Vector3.new(0, 3, 0)
-	bb.Parent      = workspace.CurrentCamera
-
-	local lbl = Instance.new("TextLabel")
-	lbl.BackgroundTransparency = 1
-	lbl.Size                   = UDim2.new(1, 0, 1, 0)
-	lbl.Text                   = mineId
-	lbl.TextColor3             = color
-	lbl.TextStrokeTransparency = 0.4
-	lbl.TextStrokeColor3       = Color3.new(0, 0, 0)
-	lbl.Font                   = Enum.Font.GothamBold
-	lbl.TextSize               = 14
-	lbl.Parent                 = bb
-
-	oreAdornments[part] = { box = box, billboard = bb }
+	oreAdornments[part] = { highlight = highlight }
 end
 
 local function removeOreESP(part)
 	local data = oreAdornments[part]
 	if data then
-		data.box:Destroy()
-		data.billboard:Destroy()
+		data.highlight:Destroy()
 		oreAdornments[part] = nil
 	end
 end
@@ -110,40 +69,12 @@ local function refreshOreESP()
 	clearAllOreESP()
 	local placedOre = workspace:FindFirstChild("PlacedOre")
 	if not placedOre then return end
-	for _, child in placedOre:GetChildren() do addOreESP(child) end
-end
-
-local function buildOreDropdown()
-	if oreDropdown then
-		pcall(function() oreDropdown.Dropdown:Destroy() end)
-		oreDropdown = nil
-	end
-	oreDropdown = OreTab:CreateDropdown({
-		Name            = "Ore Type Filter",
-		Info            = "Only highlight this ore type, or All for every ore",
-		Options         = ORE_OPTIONS,
-		CurrentOption   = { selectedOre },
-		MultipleOptions = false,
-		Flag            = "OreDropdown",
-		Callback        = function(option)
-			selectedOre = option
-			if oreESPEnabled then refreshOreESP() end
-		end,
-	})
-end
-
-local function registerOreType(mineId)
-	if not mineId or mineId == "" then return end
-	if knownOreTypes[mineId] then return end
-	knownOreTypes[mineId] = true
-	table.insert(ORE_OPTIONS, mineId)
-	buildOreDropdown()
-	Rayfield:Notify({ Title = "New Ore Detected", Content = mineId .. " added to filter.", Duration = 3 })
+	for _, desc in placedOre:GetDescendants() do addOreESP(desc) end
 end
 
 OreTab:CreateToggle({
 	Name         = "Show Ore ESP",
-	Info         = "Highlights ores in Workspace.PlacedOre",
+	Info         = "Highlights all ores in Workspace.PlacedOre through walls",
 	CurrentValue = false,
 	Flag         = "OreESP",
 	Callback     = function(enabled)
@@ -160,23 +91,16 @@ OreTab:CreateToggle({
 	end,
 })
 
-buildOreDropdown()
-
 task.spawn(function()
 	local placedOre = workspace:WaitForChild("PlacedOre", 60)
 	if not placedOre then return end
 
-	for _, child in placedOre:GetChildren() do
-		registerOreType(child:GetAttribute("MineId"))
-	end
-
-	track(placedOre.ChildAdded:Connect(function(part)
-		registerOreType(part:GetAttribute("MineId"))
-		if oreESPEnabled and shouldShowOre(part) then addOreESP(part) end
+	track(placedOre.DescendantAdded:Connect(function(desc)
+		if oreESPEnabled then addOreESP(desc) end
 	end))
 
-	track(placedOre.ChildRemoved:Connect(function(part)
-		if oreESPEnabled then removeOreESP(part) end
+	track(placedOre.DescendantRemoving:Connect(function(desc)
+		if oreESPEnabled then removeOreESP(desc) end
 	end))
 end)
 
@@ -263,6 +187,70 @@ end
 local MiscTab = Window:CreateTab("Misc", 4483362458)
 MiscTab:CreateSection("Character")
 
+-- ── Walkspeed ──────────────────────────────────────────────────────────────
+local DEFAULT_SPEED = 16
+local BOOST_SPEED   = 50
+local walkBoostOn   = false
+
+local function applyWalkSpeed(speed)
+	local char = LocalPlayer.Character
+	if not char then return end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if hum then hum.WalkSpeed = speed end
+end
+
+track(LocalPlayer.CharacterAdded:Connect(function(char)
+	local hum = char:WaitForChild("Humanoid", 10)
+	if hum and walkBoostOn then
+		hum.WalkSpeed = BOOST_SPEED
+	end
+end))
+
+MiscTab:CreateSlider({
+	Name         = "Boost WalkSpeed",
+	Info         = "Speed used when the F1 boost toggle is ON",
+	Range        = { 16, 250 },
+	Increment    = 2,
+	Suffix       = " ws",
+	CurrentValue = BOOST_SPEED,
+	Flag         = "BoostSpeed",
+	Callback     = function(value)
+		BOOST_SPEED = value
+		if walkBoostOn then applyWalkSpeed(BOOST_SPEED) end
+	end,
+})
+
+MiscTab:CreateToggle({
+	Name         = "WalkSpeed Boost  [F1]",
+	Info         = "Toggle the speed boost on/off (also bound to F1)",
+	CurrentValue = false,
+	Flag         = "WalkBoost",
+	Callback     = function(enabled)
+		walkBoostOn = enabled
+		applyWalkSpeed(enabled and BOOST_SPEED or DEFAULT_SPEED)
+		Rayfield:Notify({
+			Title    = "WalkSpeed",
+			Content  = enabled and ("Boost ON  (" .. BOOST_SPEED .. " ws)") or "Boost OFF  (16 ws)",
+			Duration = 2,
+		})
+	end,
+})
+
+track(UIS.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.F1 then
+		walkBoostOn = not walkBoostOn
+		applyWalkSpeed(walkBoostOn and BOOST_SPEED or DEFAULT_SPEED)
+		pcall(function() Rayfield.Flags["WalkBoost"]:Set(walkBoostOn) end)
+		Rayfield:Notify({
+			Title    = "WalkSpeed  [F1]",
+			Content  = walkBoostOn and ("Boost ON  (" .. BOOST_SPEED .. " ws)") or "Boost OFF  (16 ws)",
+			Duration = 2,
+		})
+	end
+end))
+
+-- ── Refresh Cooldowns ──────────────────────────────────────────────────────
 MiscTab:CreateButton({
 	Name     = "Refresh Cooldowns",
 	Info     = "Kills your character and teleports you back to the same spot",
@@ -289,6 +277,7 @@ MiscTab:CreateButton({
 		Rayfield:Notify({ Title = "Cooldowns Refreshed", Content = "Respawning and teleporting back.", Duration = 3 })
 	end,
 })
+
 
 -- ══════════════════════════════════════════════════════════════════════════════
 --  AUTO SELL
@@ -406,9 +395,9 @@ local CONFIG_PATH = "MiningESP_config.json"
 
 local function saveConfig()
 	local data = {
-		selectedOre      = selectedOre,
 		oreESPEnabled    = oreESPEnabled,
 		autoSellInterval = SELL_INTERVAL,
+		boostSpeed       = BOOST_SPEED,
 	}
 	local ok, err = pcall(function()
 		writefile(CONFIG_PATH, HttpService:JSONEncode(data))
@@ -427,11 +416,6 @@ local function loadConfig()
 	end)
 	if not ok or type(data) ~= "table" then return end
 
-	if type(data.selectedOre) == "string" then
-		selectedOre = data.selectedOre
-		pcall(function() Rayfield.Flags["OreDropdown"]:Set(data.selectedOre) end)
-	end
-
 	if type(data.oreESPEnabled) == "boolean" then
 		pcall(function() Rayfield.Flags["OreESP"]:Set(data.oreESPEnabled) end)
 	end
@@ -439,6 +423,11 @@ local function loadConfig()
 	if type(data.autoSellInterval) == "number" then
 		SELL_INTERVAL = data.autoSellInterval
 		pcall(function() Rayfield.Flags["SellInterval"]:Set(data.autoSellInterval) end)
+	end
+
+	if type(data.boostSpeed) == "number" then
+		BOOST_SPEED = data.boostSpeed
+		pcall(function() Rayfield.Flags["BoostSpeed"]:Set(data.boostSpeed) end)
 	end
 
 	Rayfield:Notify({ Title = "Config", Content = "Settings loaded.", Duration = 2 })
@@ -462,6 +451,7 @@ SettingsTab:CreateButton({
 		stopAutoSellLoop()
 		disconnectAll()
 		clearAllOreESP()
+		applyWalkSpeed(DEFAULT_SPEED)
 		pcall(function() Rayfield:Destroy() end)
 	end,
 })
