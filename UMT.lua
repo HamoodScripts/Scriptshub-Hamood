@@ -3,6 +3,7 @@ local workspace     = game:GetService("Workspace")
 local HttpService   = game:GetService("HttpService")
 local VIM           = game:GetService("VirtualInputManager")
 local UIS           = game:GetService("UserInputService")
+local RunService    = game:GetService("RunService")
 local LocalPlayer   = Players.LocalPlayer
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
@@ -91,18 +92,32 @@ OreTab:CreateToggle({
 	end,
 })
 
-task.spawn(function()
-	local placedOre = workspace:WaitForChild("PlacedOre", 60)
-	if not placedOre then return end
-
+local function setupOreConnections(placedOre)
 	track(placedOre.DescendantAdded:Connect(function(desc)
 		if oreESPEnabled then addOreESP(desc) end
 	end))
-
 	track(placedOre.DescendantRemoving:Connect(function(desc)
 		if oreESPEnabled then removeOreESP(desc) end
 	end))
-end)
+	track(RunService.Heartbeat:Connect(function()
+		if not oreESPEnabled then return end
+		for _, desc in placedOre:GetDescendants() do
+			if desc:IsA("BasePart") and not oreAdornments[desc] then
+				addOreESP(desc)
+			end
+		end
+	end))
+end
+
+local existingPlacedOre = workspace:FindFirstChild("PlacedOre")
+if existingPlacedOre then
+	setupOreConnections(existingPlacedOre)
+else
+	task.spawn(function()
+		local placedOre = workspace:WaitForChild("PlacedOre", 60)
+		if placedOre then setupOreConnections(placedOre) end
+	end)
+end
 
 
 -- ══════════════════════════════════════════════════════════════════════════════
