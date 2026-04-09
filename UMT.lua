@@ -7,10 +7,9 @@ local Lighting      = game:GetService("Lighting")
 local LocalPlayer   = Players.LocalPlayer
 
 -- ══════════════════════════════════════════════════════════════════════════════
---  LINORIA BOILERPLATE
+--  LINORIA BOILERPLATE (UPDATED URL)
 -- ══════════════════════════════════════════════════════════════════════════════
 local repo = 'https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/'
-
 
 local Library = loadstring(game:HttpGet(repo .. 'Library.lua'))()
 local ThemeManager = loadstring(game:HttpGet(repo .. 'addons/ThemeManager.lua'))()
@@ -34,6 +33,7 @@ local Tabs = {
 
 Library:SetWatermark('Hamood vibecoding | Linoria')
 
+
 -- ══════════════════════════════════════════════════════════════════════════════
 --  CONNECTION REGISTRY
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -47,7 +47,7 @@ end
 
 
 -- ══════════════════════════════════════════════════════════════════════════════
---  ORE ESP
+--  ORE ESP (OPTIMIZED FOR 240 FPS)
 -- ══════════════════════════════════════════════════════════════════════════════
 local oreAdornments = {}
 local oreESPEnabled = false
@@ -62,15 +62,15 @@ local function addOreESP(part)
 
 	local color = part.Color
 
-	local highlight = Instance.new("Highlight")
-	highlight.Adornee             = part
-	highlight.FillColor           = color
-	highlight.OutlineColor        = color
-	highlight.FillTransparency    = 0.5
-	highlight.OutlineTransparency = 0
-	highlight.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
-	highlight.Parent              = workspace.CurrentCamera
-	highlight.Enabled             = oreESPEnabled
+	local box = Instance.new("BoxHandleAdornment")
+	box.Adornee             = part
+	box.Size                = part.Size
+	box.Color3              = color
+	box.Transparency        = 0.5
+	box.ZIndex              = 5
+	box.AlwaysOnTop         = true
+	box.Parent              = workspace.CurrentCamera
+	box.Visible             = oreESPEnabled
 
 	local tracer = Drawing.new("Line")
 	tracer.Visible      = false
@@ -78,13 +78,13 @@ local function addOreESP(part)
 	tracer.Thickness    = 1
 	tracer.Transparency = 1
 
-	oreAdornments[part] = { highlight = highlight, tracer = tracer }
+	oreAdornments[part] = { box = box, tracer = tracer, inRange = true }
 end
 
 local function removeOreESP(part)
 	local data = oreAdornments[part]
 	if data then
-		if data.highlight then data.highlight:Destroy() end
+		if data.box then data.box:Destroy() end
 		if data.tracer then data.tracer:Remove() end
 		oreAdornments[part] = nil
 	end
@@ -102,10 +102,8 @@ OreESPGroup:AddToggle('OreESP', {
 		oreESPEnabled = Value
 		if Value then
 			local placedOre = workspace:FindFirstChild("PlacedOre")
-			if not placedOre then
-				Library:Notify("PlacedOre folder not found.", 4)
-				return
-			end
+			if not placedOre then return Library:Notify("PlacedOre folder not found.", 4) end
+			
 			for _, desc in placedOre:GetDescendants() do
 				if desc:IsA("BasePart") and not oreAdornments[desc] then
 					addOreESP(desc)
@@ -113,7 +111,7 @@ OreESPGroup:AddToggle('OreESP', {
 			end
 		else
 			for part, data in pairs(oreAdornments) do
-				if data.highlight then data.highlight.Enabled = false end
+				if data.box then data.box.Visible = false end
 				if data.tracer then data.tracer.Visible = false end
 			end
 		end
@@ -123,10 +121,7 @@ OreESPGroup:AddToggle('OreESP', {
 OreESPGroup:AddToggle('OreTracers', {
 	Text = 'Show Tracers',
 	Default = false,
-	Tooltip = 'Draws lines to ores within distance limit',
-	Callback = function(Value)
-		showTracers = Value
-	end
+	Callback = function(Value) showTracers = Value end
 })
 
 OreESPGroup:AddSlider('MaxEspDistance', {
@@ -136,9 +131,7 @@ OreESPGroup:AddSlider('MaxEspDistance', {
 	Max = 5000,
 	Rounding = 0,
 	Compact = false,
-	Callback = function(Value)
-		maxEspDistance = Value
-	end
+	Callback = function(Value) maxEspDistance = Value end
 })
 
 local function setupOreConnections(placedOre)
@@ -149,14 +142,7 @@ local function setupOreConnections(placedOre)
 		removeOreESP(desc)
 	end))
 	
-	track(RunService.Heartbeat:Connect(function()
-		if not oreESPEnabled then return end
-		for _, desc in placedOre:GetDescendants() do
-			if desc:IsA("BasePart") and not oreAdornments[desc] then
-				addOreESP(desc)
-			end
-		end
-	end))
+	local lastDistanceCheck = 0
 
 	track(RunService.RenderStepped:Connect(function()
 		if not oreESPEnabled then return end
@@ -165,14 +151,23 @@ local function setupOreConnections(placedOre)
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
 		local camera = workspace.CurrentCamera
 		
+		local now = os.clock()
+		local shouldUpdateDistance = false
+		if now - lastDistanceCheck > 0.5 then
+			shouldUpdateDistance = true
+			lastDistanceCheck = now
+		end
+		
 		for part, data in pairs(oreAdornments) do
 			if part and part.Parent and hrp then
-				local dist = (hrp.Position - part.Position).Magnitude
-				local inRange = dist <= maxEspDistance
 				
-				data.highlight.Enabled = inRange
+				if shouldUpdateDistance then
+					local dist = (hrp.Position - part.Position).Magnitude
+					data.inRange = dist <= maxEspDistance
+					data.box.Visible = data.inRange
+				end
 				
-				if showTracers and inRange then
+				if showTracers and data.inRange then
 					local screenPos, onScreen = camera:WorldToViewportPoint(part.Position)
 					if onScreen then
 						data.tracer.From = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y)
@@ -182,11 +177,11 @@ local function setupOreConnections(placedOre)
 						data.tracer.Visible = false
 					end
 				else
-					data.tracer.Visible = false
+					if data.tracer.Visible then data.tracer.Visible = false end
 				end
 			else
-				data.highlight.Enabled = false
-				data.tracer.Visible = false
+				data.box.Visible = false
+				if data.tracer.Visible then data.tracer.Visible = false end
 			end
 		end
 	end))
@@ -269,8 +264,6 @@ track(LocalPlayer.CharacterAdded:Connect(function(char)
 end))
 
 MiscMove:AddSlider('BoostSpeed', { Text = 'Boost WalkSpeed', Default = 50, Min = 16, Max = 250, Rounding = 0, Callback = function(v) BOOST_SPEED = v if walkBoostOn then applyWalkSpeed(BOOST_SPEED) end end })
-
--- This integrates your F1 bind natively into the Linoria UI library
 MiscMove:AddToggle('WalkBoost', {
 	Text = 'WalkSpeed Boost',
 	Default = false,
@@ -330,7 +323,10 @@ MiscUtils:AddButton({
 	end
 })
 
--- AUTO SELL
+
+-- ══════════════════════════════════════════════════════════════════════════════
+--  AUTO SELL
+-- ══════════════════════════════════════════════════════════════════════════════
 local autoSellEnabled = false
 local autoSellThread  = nil
 local SELL_INTERVAL   = 60
@@ -447,13 +443,11 @@ SaveManager:SetLibrary(Library)
 SaveManager:IgnoreThemeSettings()
 SaveManager:SetIgnoreIndexes({ 'MenuKeybind' })
 
--- This decides what folder your settings will be saved inside in your executor's workspace
 ThemeManager:SetFolder('HamoodHub')
 SaveManager:SetFolder('HamoodHub/Mining')
 
 SaveManager:BuildConfigSection(Tabs['UI Settings'])
 ThemeManager:BuildFeatureSection(Tabs['UI Settings'])
 
--- Load Autoload Configuration (if one is set)
 Window:SelectTab(1)
 SaveManager:LoadAutoloadConfig()
