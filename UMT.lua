@@ -332,32 +332,83 @@ local autoSellThread  = nil
 local SELL_INTERVAL   = 60
 
 local function getUnloader()
+	-- Try direct path first
 	local ok, result = pcall(function() return workspace.FactoryGridItemsClient.DSBuild3.DSBuild3.Unloader1 end)
-	return ok and result or nil
+	if ok and result then return result end
+	
+	-- Fallback: dynamically search for any unloader belonging to you
+	local factory = workspace:FindFirstChild("FactoryGridItemsClient")
+	if factory then
+		for _, desc in factory:GetDescendants() do
+			if desc:IsA("Model") and string.find(string.lower(desc.Name), "unloader") then
+				return desc
+			end
+		end
+	end
+	
+	return nil
 end
 
 local function doSell()
 	local char = LocalPlayer.Character
-	if not char then return end
+	if not char then return Library:Notify("Sell Failed: Character not loaded", 3) end
 	local hrp = char:FindFirstChild("HumanoidRootPart")
-	if not hrp then return end
+	if not hrp then return Library:Notify("Sell Failed: HumanoidRootPart missing", 3) end
 
 	local unloader = getUnloader()
-	if not unloader then return end
-	local sellPart = unloader.PrimaryPart or unloader:FindFirstChildWhichIsA("BasePart")
-	if not sellPart then return end
-
+	if not unloader then return Library:Notify("Sell Failed: Unloader not found! Path invalid.", 4) end
+	
 	local returnCFrame = hrp.CFrame
-	hrp.CFrame = sellPart.CFrame + Vector3.new(0, 4, 0)
-	task.wait(0.5)
-	VIM:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-	task.wait(0.1)
-	VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+	
+	-- Method 1: Executors ProximityPrompt (Instant & Background)
+	local prompt = unloader:FindFirstChildWhichIsA("ProximityPrompt", true)
+	if prompt and fireproximityprompt then
+		local promptPart = prompt.Parent:IsA("BasePart") and prompt.Parent or unloader.PrimaryPart
+		if promptPart then
+			Library:Notify("Selling: Firing ProximityPrompt...", 2)
+			hrp.CFrame = promptPart.CFrame + Vector3.new(0, 3, 0)
+			task.wait(0.5) 
+			fireproximityprompt(prompt)
+			task.wait(0.5)
+			hrp.CFrame = returnCFrame
+			return
+		end
+	end
+
+	-- Method 2: ClickDetector (Some games use this instead of pressing E)
+	local clickDetector = unloader:FindFirstChildWhichIsA("ClickDetector", true)
+	if clickDetector and fireclickdetector then
+		Library:Notify("Selling: Firing ClickDetector...", 2)
+		fireclickdetector(clickDetector)
+		return
+	end
+
+	-- Method 3: Virtual Input Manager Fallback (Requires window focus)
+	local sellPart = unloader.PrimaryPart or unloader:FindFirstChildWhichIsA("BasePart")
+	if not sellPart then return Library:Notify("Sell Failed: Unloader has no physical parts.", 3) end
+
+	Library:Notify("Selling: Using Keypress (Keep window open!)", 2)
+	hrp.CFrame = sellPart.CFrame + Vector3.new(0, 3, 0)
+	
+	task.wait(0.8) 
+	
+	pcall(function()
+		if VIM then
+			VIM:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+			task.wait(0.2) 
+			VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+		end
+	end)
+	
 	task.wait(0.5)
 	hrp.CFrame = returnCFrame
 end
 
-local function stopAutoSellLoop() autoSellEnabled = false if autoSellThread then task.cancel(autoSellThread) autoSellThread = nil end end
+local function stopAutoSellLoop() 
+	autoSellEnabled = false 
+	if autoSellThread then task.cancel(autoSellThread); autoSellThread = nil end 
+end
+
 local function startAutoSellLoop()
 	autoSellThread = task.spawn(function()
 		while autoSellEnabled do
@@ -427,7 +478,7 @@ MenuGroup:AddButton('Unload Script', function()
 	stopAutoSellLoop()
 	disconnectAll()
 	clearAllOreESP()
-	applyWalkSpeed(DEFAULT_SPEED)
+	if applyWalkSpeed then applyWalkSpeed(16) end
 	if fullbrightEnabled then
 		fullbrightEnabled = false
 		applyFullbright()
@@ -447,7 +498,7 @@ ThemeManager:SetFolder('HamoodHub')
 SaveManager:SetFolder('HamoodHub/Mining')
 
 SaveManager:BuildConfigSection(Tabs['UI Settings'])
-ThemeManager:BuildFeatureSection(Tabs['UI Settings'])
+ThemeManager:ApplyToTab(Tabs['UI Settings'])
 
 Window:SelectTab(1)
 SaveManager:LoadAutoloadConfig()
